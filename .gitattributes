@@ -1,0 +1,9 @@
+# 统一 LF，避免 Windows/CI 之间的 CRLF 差异影响正则测试
+* text=auto
+*.js text eol=lf
+*.json text eol=lf
+*.ps1 text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.png binary

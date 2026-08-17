@@ -29,7 +29,7 @@ test("自定义下拉：组件 JS 保留值同步与 change 事件链", () => {
 
 test("自定义下拉：选中后触发栏立即更新（关闭时 updateLabel），不残留旧值", () => {
   assert.match(DD_JS, /function updateLabel\(\)/);
-  assert.match(DD_JS, /wrap\.classList\.remove\("open"\);\n      updateLabel\(\)/);
+  assert.match(DD_JS, /wrap\.classList\.remove\("open"\);\n\s*updateLabel\(\)/);
   assert.match(DD_JS, /wrap\._ddRefresh = renderPanel/);
 });
 

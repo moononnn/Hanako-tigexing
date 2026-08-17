@@ -40,7 +40,9 @@ test("分享入口：积木请求拿到原始 Response，避免二次 json 解�
   assert.match(ROUTE, /function api\(path, init\)\s*\{\s*return rawApi\(path, init\)/s);
 });
 
-test("分享入口：公开仓库未配置时明确降级，不伪造仓库地址", () => {
-  assert.match(ROUTE, /const GITHUB_REPO = process\.env\.TIGEXING_GITHUB_REPO \|\| ""/);
+test("分享入口：默认公开仓库已配置，未配置时明确降级，不伪造仓库地址", () => {
+  // 发布后默认指向公开仓库；环境变量可覆盖（测试/自用换仓库用）
+  assert.match(ROUTE, /const GITHUB_REPO = process\.env\.TIGEXING_GITHUB_REPO \|\| "moononnn\/Hanako-tigexing"/);
+  // 降级分支仍保留（环境变量被清空时兜底）
   assert.match(ROUTE, /公开仓库还没配置/);
 });

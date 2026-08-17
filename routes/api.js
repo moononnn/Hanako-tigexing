@@ -32,8 +32,8 @@ import "../lib/update-checker/ui/update-checker.js";
 import "../lib/feedback/ui/feedback.js";
 
 const HANA_HOME = process.env.HANA_HOME || path.join(homedir(), ".hanako");
-// 当前还没有公开仓库时保持为空：按钮仍可用，发布仓库后只需填这一处。
-const GITHUB_REPO = process.env.TIGEXING_GITHUB_REPO || "";
+// 分享版默认仓库：发布后固定指向公开仓库；环境变量可覆盖（测试/自用换仓库用）
+const GITHUB_REPO = process.env.TIGEXING_GITHUB_REPO || "moononnn/Hanako-tigexing";
 
 // 试看示例：每个风格一条接近真实回复长度的句子（故意超过截断线，能看到截断/省略号效果）
 const PREVIEW_SAMPLES = {

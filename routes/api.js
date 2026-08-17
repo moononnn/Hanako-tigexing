@@ -659,7 +659,7 @@ ${feedbackUiJs}
             }).then(function (rr) {
               if (rr.ok && kind === "style") sndData.styleAssignments = rr.assignments || {};
               if (rr.ok && kind === "sound") sndData.assignments = rr.assignments || {};
-              showTip("snd-tip", "已保存 ✓", 1500);
+              showTip("snd-tip", rr.ok ? "已保存 ✓" : "保存失败：" + (rr.error || "未知原因"), rr.ok ? 1500 : 3000);
             }).catch(function () { showTip("snd-tip", "保存失败", 3000); });
           });
         });

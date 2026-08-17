@@ -101,3 +101,21 @@ test("configFilePath：数据目录/插件 id 拼接正确", () => {
     path.normalize("D:/data/tigexing/preferences.json")
   );
 });
+
+test("normalizeConfig：agentStyles 白名单应包含扩展风格（回归：方言保存丢失）", async () => {
+  // 背景：方言等扩展风格由 registerStyle 动态注册到 EXTRA_STYLES，
+  // 之前白名单用静态 STYLE_IDS（只有基础 10 套），导致选上海话保存后被静默丢弃、刷新变回默认。
+  const style = await import("../lib/style.js");
+  style.registerStyle({ id: "dh_shanghai", label: "上海话", refinable: true, title: () => "", body: () => "" });
+
+  const norm = normalizeConfig({ agentStyles: { hanako: "dh_shanghai" } });
+  assert.equal(norm.agentStyles.hanako, "dh_shanghai", "已注册的扩展风格应保留");
+
+  // 未注册的非法 id 仍应被过滤
+  const norm2 = normalizeConfig({ agentStyles: { hanako: "dh_not_exists" } });
+  assert.deepEqual(norm2.agentStyles, {}, "非法风格 id 应被过滤");
+
+  // 基础风格照常
+  const norm3 = normalizeConfig({ agentStyles: { hanako: "epistle" } });
+  assert.equal(norm3.agentStyles.hanako, "epistle", "基础风格照常保留");
+});

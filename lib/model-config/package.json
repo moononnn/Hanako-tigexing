@@ -1,0 +1,14 @@
+{
+  "name": "model-config",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "插件积木箱 · model-config：三档模型配置（跟随助手 / Hana 模型 / 自定义 API），Key 三层存储（Windows DPAPI 系统锁）",
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "main": "./index.js",
+  "engines": {
+    "node": ">=18"
+  }
+}

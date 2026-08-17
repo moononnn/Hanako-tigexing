@@ -1,0 +1,16 @@
+# 用户数据 / 运行时文件（不进仓库）
+data.json
+preferences.json
+*.log
+_backups/
+
+# 本地私有文档（不在仓库维护）
+PENDING_CHANGES.md
+PROJECT_LOG.md
+新窗口交接*
+
+# 自用专属（分享版不含特效）
+lib/effects/
+
+# Node
+node_modules/

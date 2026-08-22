@@ -9,6 +9,7 @@
 // v0.2.0：页面整体重做（修复 api() 无凭证按钮全废）；删合并间隔设置；删通知历史
 // v0.3.0：删重要关键词；新增按助手通知风格（default/plain/cheerful/gentle），设置页自由组合 风格+音效
 // v0.3.1：删通知样式选择器（固定带头像）；删试一试卡片与 /api/test；页面翻新为纸感手帐风
+// v0.4.3：计划任务接管总开关 + 已有宿主通知自动去重
 
 import path from "node:path";
 import fs from "node:fs";
@@ -162,7 +163,7 @@ export default function (app, ctx) {
   body {
     background: var(--bg); color: var(--ink);
     font-family: "LXGW WenKai", "霞鹜文楷", "Kaiti SC", "KaiTi", "Microsoft YaHei", serif;
-    padding: 22px 18px 40px; max-width: 560px; margin: 0 auto;
+    padding: 22px 18px 40px; max-width: 720px; margin: 0 auto;
     background-image: radial-gradient(circle at 12% 8%, rgba(93,174,142,.14) 0, transparent 110px),
                       radial-gradient(circle at 90% 24%, rgba(232,155,176,.12) 0, transparent 120px);
   }
@@ -197,9 +198,11 @@ export default function (app, ctx) {
   input:focus { outline: 2px solid rgba(93,174,142,.35); border-color: var(--accent); }
   select:focus { outline: 2px solid rgba(93,174,142,.35); outline-offset: 1px; border-color: var(--accent); }
   .switch {
-    width: 46px; height: 25px; border-radius: 13px; border: 1px solid var(--line);
+    width: 46px; height: 25px; padding: 0; border-radius: 13px; border: 1px solid var(--line);
     background: #E7EDE5; position: relative; cursor: pointer; transition: background .2s, border-color .2s; flex-shrink: 0;
+    appearance: none; font-size: 0;
   }
+  .switch:focus-visible { outline: 2px solid rgba(93,174,142,.55); outline-offset: 2px; }
   .switch::after {
     content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px;
     border-radius: 50%; background: #FFF; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.15);
@@ -229,6 +232,7 @@ export default function (app, ctx) {
   .seg-btn.on { background: var(--accent); border-color: var(--accent); color: #FBFFFC; }
   .seg-btn .seg-desc { display: block; font-size: 13.5px; opacity: 1; margin-top: 3px; color: var(--ink-soft); font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; }
   .seg-btn.on .seg-desc { opacity: 1; color: rgba(255,255,255,.95); }
+
   .seg-inline { display: flex; gap: 10px; }
   .seg-inline .seg-btn { flex: 1; text-align: center; padding: 11px 6px; }
   .snd-folder { margin-bottom: 8px; }
@@ -238,35 +242,41 @@ export default function (app, ctx) {
   .snd-folder-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .snd-head, .snd-row {
     display: grid;
-    grid-template-columns: minmax(60px, .8fr) minmax(136px, 1fr) minmax(120px, 1.4fr) minmax(82px, auto);
+    grid-template-columns: minmax(60px, .8fr) minmax(104px, 1fr) minmax(96px, 1fr) minmax(132px, 1.2fr) minmax(76px, auto);
     gap: 8px; align-items: center;
   }
   .snd-row {
     padding: 8px 2px; border-bottom: 1px dashed var(--line-soft);
   }
   .snd-row:last-child { border-bottom: none; }
+  .snd-row > * { min-width: 0; }
   .snd-row .who { font-size: 14.5px; font-weight: 600; min-width: 0; }
   .snd-head {
     padding: 2px 2px 6px; font-size: 13px; color: var(--ink-soft); font-weight: 600;
     font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   }
-  .snd-head .col-style, .snd-head .col-sound { min-width: 0; }
-  .snd-head .col-action { min-width: 82px; }
+  .snd-head .col-style, .snd-head .col-sound, .snd-head .col-trigger { min-width: 0; }
+  .snd-head .col-action { min-width: 76px; }
   .snd-row .dd-trigger {
     min-height: 36px;
     padding: 7px 10px; font-size: 13.5px;
     background-color: var(--card);
   }
-  .snd-row .mini { min-width: 82px; font-size: 13px; padding: 6px 13px; border-radius: 999px; white-space: nowrap; }
+  .snd-row .mini { width: 100%; min-width: 0; font-size: 13px; padding: 6px 8px; border-radius: 999px; white-space: nowrap; }
   /* ── 自定义下拉组件（plugin-kit beautify-select，从 lib/beautify-select/ 读取内联） ── */
   ${beautifySelectCss}
-  @media (max-width: 440px) {
+  @media (max-width: 620px) {
+    .seg-inline { flex-direction: column; }
+    .seg-inline .seg-btn { flex: none; width: 100%; text-align: left; }
+    #refine-custom-box .btn-row { flex-direction: column; align-items: stretch; }
+    #refine-custom-box .btn-row > * { width: 100%; flex: none !important; }
     .snd-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .snd-head .who, .snd-head .col-action { display: none; }
     .snd-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .snd-row .who { grid-column: 1 / -1; }
     .snd-row .dd[data-kind="style"] { grid-column: 1; }
-    .snd-row .dd[data-kind="sound"] { grid-column: 2; }
+    .snd-row .dd[data-kind="trigger"] { grid-column: 2; }
+    .snd-row .dd[data-kind="sound"] { grid-column: 1 / -1; }
     .snd-row .mini { grid-column: 1 / -1; justify-self: start; }
   }
   .tip-line { font-size: 13.5px; color: var(--ink-soft); min-height: 20px; margin-top: 9px; font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; }
@@ -306,24 +316,16 @@ export default function (app, ctx) {
   .support-actions .uc-link:hover { text-decoration:underline; }
   .support-actions .support-feedback-btn { grid-column:2; }
   #fb-open-btn { display:none; }
-  .fb-modal-mask { background:rgba(69, 75, 67, .20); }
-  .fb-modal-panel { background:var(--card); border:1px dashed var(--line); border-radius:20px; box-shadow:0 16px 36px rgba(69,75,67,.16); }
-  .fb-modal-head, .fb-input-row, .fb-actions { border-color:var(--line); border-style:dashed; }
-  .fb-modal-title { color:var(--accent-deep); font-family:inherit; }
-  .fb-modal-close { color:var(--ink-soft); }
-  .fb-send-btn, .fb-btn-primary { background:var(--accent); border-color:var(--accent); border-radius:999px; }
-  .fb-send-btn:hover:not(:disabled), .fb-btn-primary:hover { background:var(--accent-deep); }
-  .fb-btn, .fb-open-btn { border-radius:999px; }
   .support-feedback-btn { display:flex; align-items:center; justify-content:center; gap:7px; }
   .support-entry-icon { width:18px; height:18px; flex-shrink:0; }
   @media (max-width: 420px) { .support-actions { grid-template-columns:1fr; } .support-actions .support-feedback-btn { grid-column:auto; } }
 </style>
 </head>
 <body>
-  ${cfg.chatTrigger !== "never" || cfg.scheduledTrigger !== "never" || cfg.patrolTrigger !== "never" ? `
+  ${cfg.chatTrigger !== "never" || (cfg.scheduledTakeover && cfg.scheduledTrigger !== "never") || cfg.patrolTrigger !== "never" ? `
   <div class="card" style="border-color:var(--warn);background:var(--warn-soft)">
     <h2>小提示</h2>
-    <div class="hint">提个醒已接管 <b>聊天回复完成 / 计划任务完成 / 巡检完成</b> 三项提醒。为避免双弹，记得在 Hana 设置 → <b>通用</b> → 通知 里把这三项都设为 <b>从不</b>。</div>
+    <div class="hint">提个醒会接管 Hana 自动发出的 <b>聊天回复完成 / 计划任务完成 / 巡检完成</b> 提醒。计划任务如果已经通过小花的桌面通知功能发过一条，提个醒会自动跳过重复提醒；任务自己的通知不受接管开关影响。为避免 Hana 原版自动通知和提个醒双弹，仍建议把 Hana 设置里的三项原版通知设为 <b>从不</b>。</div>
   </div>
   ` : ""}
 
@@ -342,10 +344,20 @@ export default function (app, ctx) {
 
     <div class="mode-block">
       <div class="mode-name">计划任务完成</div>
-      <div class="seg" id="seg-scheduled">
-        <button class="seg-btn ${cfg.scheduledTrigger === "always" ? "on" : ""}" data-trigger="always">总是提醒<span class="seg-desc">任务跑完就弹，不管 Hana 在不在前台</span></button>
-        <button class="seg-btn ${cfg.scheduledTrigger === "whenUnfocused" ? "on" : ""}" data-trigger="whenUnfocused">焦点不在 HanaAgent 时<span class="seg-desc">正在用 Hana 就不提醒，切走才提醒（推荐）</span></button>
-        <button class="seg-btn ${cfg.scheduledTrigger === "never" ? "on" : ""}" data-trigger="never">从不提醒<span class="seg-desc">计划任务跑完不打扰</span></button>
+      <div class="btn-row" style="justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-size:14px">接管计划任务提醒</div>
+          <div class="hint">开启后，没通过小花通知功能发出的计划任务由提个醒补一条；已经发过的会自动跳过，避免双弹，确认过程可能会晚约 1～2 秒。</div>
+          <div class="hint" id="scheduled-off-note" style="${cfg.scheduledTakeover ? "display:none;" : ""}">已关闭：提个醒不补发计划任务通知；任务自己的通知仍照常显示。重新打开会恢复之前选的提醒时机。</div>
+        </div>
+        <button type="button" class="switch ${cfg.scheduledTakeover ? "on" : ""}" id="sw-scheduled-takeover" role="switch" aria-checked="${cfg.scheduledTakeover ? "true" : "false"}" aria-label="接管计划任务提醒"></button>
+      </div>
+      <div id="scheduled-options" style="${cfg.scheduledTakeover ? "" : "opacity:.45;pointer-events:none;"}">
+        <div class="seg" id="seg-scheduled">
+          <button class="seg-btn ${cfg.scheduledTrigger === "always" ? "on" : ""}" data-trigger="always">总是提醒<span class="seg-desc">任务跑完就弹，不管 Hana 在不在前台</span></button>
+          <button class="seg-btn ${cfg.scheduledTrigger === "whenUnfocused" ? "on" : ""}" data-trigger="whenUnfocused">焦点不在 HanaAgent 时<span class="seg-desc">正在用 Hana 就不提醒，切走才提醒（推荐）</span></button>
+          <button class="seg-btn ${cfg.scheduledTrigger === "never" ? "on" : ""}" data-trigger="never">从不提醒<span class="seg-desc">提个醒不补弹，任务自己的通知不受影响</span></button>
+        </div>
       </div>
     </div>
 
@@ -357,11 +369,20 @@ export default function (app, ctx) {
         <button class="seg-btn ${cfg.patrolTrigger === "never" ? "on" : ""}" data-trigger="never">从不提醒<span class="seg-desc">巡检跑完不打扰</span></button>
       </div>
     </div>
+
+    <div class="mode-block">
+      <div class="mode-name">弹窗停留时间</div>
+      <div class="hint" style="margin-bottom:8px">Windows 系统通知默认停留较短；选“停留久一些”后，大约会显示 25 秒，实际时间仍可能受 Windows 通知设置影响。</div>
+      <div class="seg" id="seg-duration">
+        <button class="seg-btn ${cfg.toastDuration === "long" ? "" : "on"}" data-duration="default">系统默认<span class="seg-desc">保持 Windows 当前通知时长</span></button>
+        <button class="seg-btn ${cfg.toastDuration === "long" ? "on" : ""}" data-duration="long">停留久一些<span class="seg-desc">大约 25 秒，更不容易错过</span></button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
     <h2>按助手个性化</h2>
-    <div class="hint" style="margin-bottom:8px">每个助手可以配不同的音效和通知风格。风格只改变标题语气和正文包装，正文永远显示助手原话，不改写不生成；音效用你放进来的音频文件。</div>
+    <div class="hint" style="margin-bottom:8px">每个助手可以配不同的音效、通知风格和提醒时机。风格只改变标题语气和正文包装，正文永远显示助手原话，不改写不生成；音效用你放进来的音频文件；提醒时机只影响「聊天回复完成」，选「跟随全局」就用上面全局档位。</div>
     ${biaoqingbaoInstalled(resolveHanaHome())
       ? '<div class="hint" style="margin-bottom:8px">🎁 已解锁联动风格：装了表情包插件，风格列表末尾多出九种方言（东北话/河南话/上海话/粤语/台湾腔/四川话/陕西话/北京话/新疆话）+ 学我说话，方言文案跟着表情包自动更新。</div>'
       : '<div class="hint" style="margin-bottom:8px">🎁 装「表情包」插件可解锁更多通知风格：九种方言（东北话/四川话/粤语…）+ 学我说话。没装也不影响，现有风格照常用。</div>'}
@@ -389,7 +410,7 @@ export default function (app, ctx) {
         <div style="font-size:14px">开启润色</div>
         <div class="hint">仅对语气型风格生效（跟随默认/简洁/活泼/温柔/黑话）</div>
       </div>
-      <div class="switch ${cfg.refineEnabled ? "on" : ""}" id="sw-refine"></div>
+      <button type="button" class="switch ${cfg.refineEnabled ? "on" : ""}" id="sw-refine" role="switch" aria-checked="${cfg.refineEnabled ? "true" : "false"}" aria-label="开启文案润色"></button>
     </div>
     <div id="refine-box" style="${cfg.refineEnabled ? "" : "opacity:.45;pointer-events:none;"}">
       <div class="seg-inline" id="seg-refine-source" style="margin-bottom:10px">
@@ -429,7 +450,7 @@ export default function (app, ctx) {
         <div style="font-size:14px">静默时段内不弹窗</div>
         <div class="hint">适合睡觉、开会，不想被吵醒的时候</div>
       </div>
-      <div class="switch ${qh.enabled ? "on" : ""}" id="sw-quiet"></div>
+      <button type="button" class="switch ${qh.enabled ? "on" : ""}" id="sw-quiet" role="switch" aria-checked="${qh.enabled ? "true" : "false"}" aria-label="开启静默时段"></button>
     </div>
     <div class="btn-row" id="quiet-times" style="${qh.enabled ? "" : "opacity:.45;pointer-events:none;"}">
       <input type="time" id="in-qstart" value="${escapeHtml(qh.start || "22:00")}">
@@ -545,6 +566,21 @@ ${feedbackUiJs}
   });
 
   // ── 提醒时机（三项各自独立，跟 Hana 原版一致） ──
+  var durationSeg = document.getElementById("seg-duration");
+  if (durationSeg) {
+    durationSeg.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest(".seg-btn[data-duration]") : null;
+      if (!btn) return;
+      cfg.toastDuration = btn.dataset.duration === "long" ? "long" : "default";
+      durationSeg.querySelectorAll(".seg-btn").forEach(function (b) {
+        b.classList.toggle("on", b === btn);
+      });
+      api("/api/config", { method: "POST", body: JSON.stringify({ toastDuration: cfg.toastDuration }) })
+        .then(function () { flashTip("已保存 ✓", "ok"); })
+        .catch(function () { flashTip("保存失败，看 Hana 日志", "err"); });
+    });
+  }
+
   var TRIGGER_FIELDS = {
     "seg-chat": "chatTrigger",
     "seg-scheduled": "scheduledTrigger",
@@ -569,17 +605,44 @@ ${feedbackUiJs}
     });
   });
 
+  function setScheduledTakeover(on) {
+    cfg.scheduledTakeover = !!on;
+    var sw = document.getElementById("sw-scheduled-takeover");
+    var options = document.getElementById("scheduled-options");
+    if (sw) {
+      sw.classList.toggle("on", cfg.scheduledTakeover);
+      sw.setAttribute("aria-checked", String(cfg.scheduledTakeover));
+    }
+    var offNote = document.getElementById("scheduled-off-note");
+    if (offNote) offNote.style.display = cfg.scheduledTakeover ? "none" : "";
+    if (options) {
+      options.style.opacity = cfg.scheduledTakeover ? "" : ".45";
+      options.style.pointerEvents = cfg.scheduledTakeover ? "" : "none";
+    }
+  }
+  bind("sw-scheduled-takeover", "click", function () {
+    var next = !cfg.scheduledTakeover;
+    setScheduledTakeover(next);
+    api("/api/config", { method: "POST", body: JSON.stringify({ scheduledTakeover: next }) })
+      .then(function () { flashTip("已保存 ✓", "ok"); })
+      .catch(function () { flashTip("保存失败，看 Hana 日志", "err"); });
+  });
+
   // ── 静默时段 ──
   bind("sw-quiet", "click", function () {
     cfg.quietHours.enabled = !cfg.quietHours.enabled;
     var sw = document.getElementById("sw-quiet");
     var qt = document.getElementById("quiet-times");
-    if (sw) sw.classList.toggle("on", cfg.quietHours.enabled);
+    if (sw) {
+      sw.classList.toggle("on", cfg.quietHours.enabled);
+      sw.setAttribute("aria-checked", String(cfg.quietHours.enabled));
+    }
     if (qt) {
       qt.style.opacity = cfg.quietHours.enabled ? "" : ".45";
       qt.style.pointerEvents = cfg.quietHours.enabled ? "" : "none";
     }
     api("/api/config", { method: "POST", body: JSON.stringify({ quietHours: cfg.quietHours }) })
+      .then(function () { flashTip("已保存 ✓", "ok"); })
       .catch(function () { flashTip("保存失败，看 Hana 日志", "err"); });
   });
   bind("in-qstart", "change", saveQuietTime);
@@ -590,16 +653,34 @@ ${feedbackUiJs}
     cfg.quietHours.start = (qs && qs.value) || "22:00";
     cfg.quietHours.end = (qe && qe.value) || "08:00";
     api("/api/config", { method: "POST", body: JSON.stringify({ quietHours: cfg.quietHours }) })
+      .then(function () { flashTip("已保存 ✓", "ok"); })
       .catch(function () { flashTip("保存失败，看 Hana 日志", "err"); });
   }
 
   // ── 按助手个性化（风格 + 音效） ──
-  var sndData = { files: [], agents: [], assignments: {}, styleAssignments: {}, styles: [] };
+  var sndData = { files: [], agents: [], assignments: {}, styleAssignments: {}, triggerAssignments: {}, styles: [] };
   var esc = function (s) {
     return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   };
   var sndVal = function (a) { return sndData.assignments[a.id] || "default"; };
   var styleVal = function (a) { return sndData.styleAssignments[a.id] || "default"; };
+  var triggerVal = function (a) { return sndData.triggerAssignments[a.id] || "default"; };
+  // 提醒时机：default=跟随全局；其余四档按助手覆盖（聊天回复完成档）
+  var TRIGGER_OPTIONS = [
+    ["default", "跟随全局"],
+    ["always", "总是提醒"],
+    ["whenSessionUnfocused", "焦点不在该聊天时"],
+    ["whenUnfocused", "焦点不在 HanaAgent 时"],
+    ["never", "从不提醒"]
+  ];
+  function triggerOptions(a) {
+    var opts = "";
+    for (var i = 0; i < TRIGGER_OPTIONS.length; i++) {
+      var sel = triggerVal(a) === TRIGGER_OPTIONS[i][0] ? " selected" : "";
+      opts += '<option value="' + TRIGGER_OPTIONS[i][0] + '"' + sel + ">" + TRIGGER_OPTIONS[i][1] + "</option>";
+    }
+    return opts;
+  }
 
   function styleOptions(a) {
     var opts = "";
@@ -629,6 +710,7 @@ ${feedbackUiJs}
           agents: r.agents || [],
           assignments: r.assignments || {},
           styleAssignments: r.styleAssignments || {},
+          triggerAssignments: r.triggerAssignments || {},
           styles: r.styles || []
         };
         var dirIn = document.getElementById("in-snd-dir");
@@ -639,12 +721,13 @@ ${feedbackUiJs}
           list.innerHTML = '<div class="empty">没有找到助手</div>';
           return;
         }
-        var html = '<div class="snd-head"><span class="who"></span><span class="col-style">文案风格</span><span class="col-sound">音效</span><span class="col-action" aria-hidden="true"></span></div>';
+        var html = '<div class="snd-head"><span class="who"></span><span class="col-style">文案风格</span><span class="col-sound">音效</span><span class="col-trigger">提醒时机</span><span class="col-action" aria-hidden="true"></span></div>';
         for (var i = 0; i < sndData.agents.length; i++) {
           var a = sndData.agents[i];
           html += '<div class="snd-row"><span class="who">' + esc(a.name) + "</span>" +
             '<select data-agent="' + esc(a.id) + '" data-kind="style">' + styleOptions(a) + "</select>" +
             '<select data-agent="' + esc(a.id) + '" data-kind="sound">' + sndOptions(a) + "</select>" +
+            '<select data-agent="' + esc(a.id) + '" data-kind="trigger" title="聊天回复完成按这个档位提醒；跟随全局=用上面全局档位">' + triggerOptions(a) + "</select>" +
             '<button class="mini" data-preview="' + esc(a.id) + '">看看效果</button></div>';
         }
         list.innerHTML = html;
@@ -652,13 +735,14 @@ ${feedbackUiJs}
         list.querySelectorAll("select").forEach(function (sel) {
           sel.addEventListener("change", function () {
             var kind = sel.dataset.kind;
-            var path = kind === "style" ? "/api/agents/style" : "/api/sounds/assign";
+            var path = kind === "style" ? "/api/agents/style" : kind === "trigger" ? "/api/agents/trigger" : "/api/sounds/assign";
             api(path, {
               method: "POST",
               body: JSON.stringify({ agentId: sel.dataset.agent, value: sel.value })
             }).then(function (rr) {
               if (rr.ok && kind === "style") sndData.styleAssignments = rr.assignments || {};
               if (rr.ok && kind === "sound") sndData.assignments = rr.assignments || {};
+              if (rr.ok && kind === "trigger") sndData.triggerAssignments = rr.assignments || {};
               showTip("snd-tip", rr.ok ? "已保存 ✓" : "保存失败：" + (rr.error || "未知原因"), rr.ok ? 1500 : 3000);
             }).catch(function () { showTip("snd-tip", "保存失败", 3000); });
           });
@@ -736,7 +820,10 @@ ${feedbackUiJs}
     refineState.enabled = on;
     var sw = document.getElementById("sw-refine");
     var box = document.getElementById("refine-box");
-    if (sw) sw.classList.toggle("on", on);
+    if (sw) {
+      sw.classList.toggle("on", on);
+      sw.setAttribute("aria-checked", String(on));
+    }
     if (box) box.style.cssText = on ? "" : "opacity:.45;pointer-events:none;";
   }
 
@@ -989,7 +1076,8 @@ ${feedbackUiJs}
       agents: listAgentsFromDisk(path.join(HANA_HOME, "agents")),
       styles: getStyleIds().map((id) => { const s = getStyle(id); return { id, label: s.label, desc: s.desc }; }),
       assignments: cfg.agentSounds || {},
-      styleAssignments: cfg.agentStyles || {}
+      styleAssignments: cfg.agentStyles || {},
+      triggerAssignments: cfg.agentTriggers || {}
     });
   });
 
@@ -1062,6 +1150,25 @@ ${feedbackUiJs}
     return c.json({ ok: true, assignments: configManager.get().agentStyles || {} });
   });
 
+  // 按助手提醒时机（v0.5.0）：聊天回复完成的档位按助手覆盖；「跟随全局」= 不存该助手
+  const VALID_CHAT_TRIGGERS = ["never", "whenUnfocused", "whenSessionUnfocused", "always"];
+  app.post("/api/agents/trigger", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const agentId = String(body.agentId || "").trim();
+    const value = String(body.value || "").trim();
+    if (!agentId) return c.json({ ok: false, error: "missing agentId" });
+    const cfg = configManager.get();
+    const next = { ...(cfg.agentTriggers || {}) };
+    if (value === "default" || value === "") {
+      delete next[agentId]; // 恢复跟随全局
+    } else {
+      if (!VALID_CHAT_TRIGGERS.includes(value)) return c.json({ ok: false, error: "unknown trigger" });
+      next[agentId] = value;
+    }
+    await configManager.patch({ agentTriggers: next });
+    return c.json({ ok: true, assignments: configManager.get().agentTriggers || {} });
+  });
+
   app.post("/api/sounds/assign", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const agentId = String(body.agentId || "").trim();
@@ -1104,6 +1211,7 @@ ${feedbackUiJs}
       // 头像：该助手的头像（跟真实通知一致），找不到回退插件图标
       icon: resolveAgentAvatar(path.join(HANA_HOME, "agents"), agentId) || undefined,
       sound,
+      duration: cfg.toastDuration,
       log
     });
     return c.json({ ok: true, sent });

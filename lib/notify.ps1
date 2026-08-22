@@ -143,8 +143,10 @@ public static class TxsLnk
 $t = [Environment]::GetEnvironmentVariable("TXS_TITLE", "Process")
 $m = [Environment]::GetEnvironmentVariable("TXS_MSG", "Process")
 $st = [Environment]::GetEnvironmentVariable("TXS_STYLE", "Process")
+$dur = [Environment]::GetEnvironmentVariable("TXS_DURATION", "Process")
 $t2 = [System.Security.SecurityElement]::Escape([string]$t)
 $m2 = [System.Security.SecurityElement]::Escape([string]$m)
+$durationAttr = if ($dur -eq "long") { " duration='long'" } else { "" }
 
 # 头像（appLogoOverride）：优先 TXS_ICON（助手头像），回退插件图标，plain 时纯文本
 $img = ""
@@ -177,7 +179,7 @@ if ($sd -eq "silent") {
 }
 
 $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
-$xml.LoadXml("<toast><visual><binding template='ToastGeneric'>$img<text>$t2</text><text>$m2</text></binding></visual>$audioTag</toast>")
+$xml.LoadXml("<toast$durationAttr><visual><binding template='ToastGeneric'>$img<text>$t2</text><text>$m2</text></binding></visual>$audioTag</toast>")
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($AUMID).Show($toast)
 

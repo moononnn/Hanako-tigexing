@@ -67,9 +67,16 @@ test("自定义下拉：外部直接改 options/value 时 MutationObserver 同�
   assert.match(DD_JS, /setTimeout\(renderPanel, 0\)/);
 });
 
-test("自定义下拉：窄屏 grid 布局选择器已适配 .dd 容器", () => {
+test("自定义下拉：窄屏 grid 布局选择器已适配 .dd 容器（含提醒时机列）", () => {
   assert.match(ROUTE, /\.snd-row \.dd\[data-kind="style"\] \{ grid-column: 1; \}/);
-  assert.match(ROUTE, /\.snd-row \.dd\[data-kind="sound"\] \{ grid-column: 2; \}/);
+  assert.match(ROUTE, /\.snd-row \.dd\[data-kind="trigger"\] \{ grid-column: 2; \}/);
+  assert.match(ROUTE, /\.snd-row \.dd\[data-kind="sound"\] \{ grid-column: 1 \/ -1; \}/);
+});
+
+test("自定义下拉：441～620px 窄卡片也切成两列，避免试听按钮横向溢出", () => {
+  assert.match(ROUTE, /@media \(max-width: 620px\)/);
+  assert.match(ROUTE, /\.snd-row \{ grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\); \}/);
+  assert.match(ROUTE, /\.snd-row \.mini \{ grid-column: 1 \/ -1; justify-self: start; \}/);
 });
 
 test("自定义下拉：风格 label 不带 emoji，窄栏能完整显示", () => {

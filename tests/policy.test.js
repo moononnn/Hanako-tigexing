@@ -8,7 +8,8 @@ import {
   Notifier,
   isInQuietHours,
   makeSnippet,
-  buildTitle
+  buildTitle,
+  resolveChatTrigger
 } from "../lib/policy.js";
 import { DEFAULT_CONFIG, normalizeConfig } from "../lib/config.js";
 
@@ -56,6 +57,50 @@ test("静默时段：无效时间格式返回 false", () => {
   assert.equal(isInQuietHours(cfg, new Date("2026-08-09T02:00:00")), false);
 });
 
+// ── 按助手提醒时机（v0.5.0） ──
+
+test("resolveChatTrigger：未配置的助手跟随全局档位", () => {
+  const cfg = baseConfig({ chatTrigger: "always" });
+  assert.equal(resolveChatTrigger(cfg, "hanako"), "always");
+  assert.equal(resolveChatTrigger(cfg, "xiansheng"), "always");
+});
+
+test("resolveChatTrigger：清单里的助手用自己档位，其他人不受影响", () => {
+  const cfg = baseConfig({
+    chatTrigger: "always",
+    agentTriggers: { xiansheng: "never" }
+  });
+  assert.equal(resolveChatTrigger(cfg, "xiansheng"), "never");
+  assert.equal(resolveChatTrigger(cfg, "hanako"), "always");
+});
+
+test("resolveChatTrigger：中间档位覆盖也生效（焦点不在该聊天时）", () => {
+  const cfg = baseConfig({
+    chatTrigger: "always",
+    agentTriggers: { yumi: "whenSessionUnfocused" }
+  });
+  assert.equal(resolveChatTrigger(cfg, "yumi"), "whenSessionUnfocused");
+});
+
+test("resolveChatTrigger：配置里出现非法档位时忽略、回退全局（防御 normalize 漏网）", () => {
+  const cfg = baseConfig({
+    chatTrigger: "whenUnfocused",
+    agentTriggers: { hanako: "sometimes" }
+  });
+  assert.equal(resolveChatTrigger(cfg, "hanako"), "whenUnfocused");
+});
+
+test("resolveChatTrigger：无 agentId 时一律用全局档位", () => {
+  const cfg = baseConfig({ chatTrigger: "always", agentTriggers: { xiansheng: "never" } });
+  assert.equal(resolveChatTrigger(cfg, null), "always");
+  assert.equal(resolveChatTrigger(cfg, ""), "always");
+});
+
+test("resolveChatTrigger：全局缺省时用默认档位兜底", () => {
+  const cfg = baseConfig({ agentTriggers: { xiansheng: "never" } });
+  assert.equal(resolveChatTrigger(cfg, "hanako"), "whenSessionUnfocused");
+});
+
 test("通知样式固定带头像：旧配置 plain 也归一为 icon（v0.3.1 拍板）", () => {
   const cfg = normalizeConfig({ toastStyle: "plain" });
   assert.equal(cfg.toastStyle, "icon");
@@ -74,6 +119,9 @@ test("三项监听档位：各自独立，非法值回退默认", () => {
   assert.equal(cfg.chatTrigger, "always");
   assert.equal(cfg.scheduledTrigger, "whenUnfocused");
   assert.equal(cfg.patrolTrigger, "never");
+  const offNever = normalizeConfig({ scheduledTakeover: false, scheduledTrigger: "never" });
+  assert.equal(offNever.scheduledTakeover, false);
+  assert.equal(offNever.scheduledTrigger, "never");
   // 任务档位不接受 whenSessionUnfocused（跟原版一致，无会话概念）
   const bad = normalizeConfig({ scheduledTrigger: "whenSessionUnfocused" });
   assert.equal(bad.scheduledTrigger, "whenUnfocused");
@@ -174,6 +222,17 @@ test("合并：窗口过期后新回复开新窗口（count 重置为 1）", () 
   assert.equal(d.action, "toast");
   assert.equal(d.kind, "first");
   assert.equal(d.count, 1);
+});
+
+test("合并：刷新配置不重置已有会话状态", () => {
+  const n = new Notifier(baseConfig({ mergeWindowMs: 30000 }));
+  n.decide({ sessionId: "s1", agentId: "hanako", agentName: "小花", text: "第一条" }, 1_000_000);
+
+  // index.js 每轮刷新配置时只替换 config，不能重新 new Notifier。
+  n.config = baseConfig({ mergeWindowMs: 30000, refineEnabled: true });
+  const next = n.decide({ sessionId: "s1", agentId: "hanako", agentName: "小花", text: "第二条" }, 1_005_000);
+  assert.equal(next.action, "merge");
+  assert.equal(next.count, 2);
 });
 
 // ── 开关 ──

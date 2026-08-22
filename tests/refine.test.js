@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRefineMessages, parseRefineResult, refineTitleAndBody } from "../lib/refine.js";
+import { buildRefineMessages, parseRefineResult, parseRefineResultLenient, refineTitleAndBody } from "../lib/refine.js";
 import { STYLES, sessionPrefix } from "../lib/style.js";
 
 const style = (id) => STYLES[id];
@@ -30,11 +30,34 @@ test("buildRefineMessages：system 约束格式，user 带上下文", () => {
   assert.match(msgs[1].content, /接口报错了/);
 });
 
+test("buildRefineMessages：system 含输出示例与「思考完必须输出」硬约束", () => {
+  const msgs = buildRefineMessages({ agentName: "小花", style: style("gentle"), kind: "first", snippet: "x", count: 1 });
+  assert.match(msgs[0].content, /示例/);
+  assert.match(msgs[0].content, /\{"title": "小花回你啦～", "body":/);
+  assert.match(msgs[0].content, /思考完毕必须把最终 JSON/);
+  assert.match(msgs[0].content, /不要只思考不输出/);
+  assert.match(msgs[0].content, /Markdown/);
+});
+
 test("buildRefineMessages：append 提示累计条数，snippet 超长裁剪", () => {
   const msgs = buildRefineMessages({ agentName: "助手B", style: style("cheerful"), kind: "append", snippet: "长".repeat(200), count: 4 });
   assert.match(msgs[1].content, /补弹/);
   assert.match(msgs[1].content, /3 条/);
   assert.ok(msgs[1].content.length < 400, "snippet 被裁剪");
+});
+
+test("buildRefineMessages：异常回合要求保留内容并提醒继续", () => {
+  const msgs = buildRefineMessages({
+    agentName: "小花",
+    style: style("gentle"),
+    kind: "failure",
+    snippet: "已经收到一半",
+    count: 1,
+    failureReason: "WebSocket error"
+  });
+  assert.match(msgs[1].content, /异常回合/);
+  assert.match(msgs[1].content, /继续/);
+  assert.match(msgs[1].content, /WebSocket error/);
 });
 
 test("parseRefineResult：标准 JSON", () => {
@@ -66,8 +89,53 @@ test("refineTitleAndBody：成功返回带会话前缀标题 + 正文", async ()
 });
 
 test("refineTitleAndBody：模型失败抛错（调用方降级规则版）", async () => {
-  const mc = { sample: async () => { throw new Error("timeout"); } };
+  let calls = 0;
+  const mc = { sample: async () => { calls += 1; throw new Error("timeout"); } };
   await assert.rejects(refineTitleAndBody({
     mc, agentName: "小花", style: style("gentle"), kind: "first", snippet: "x", count: 1, sessionPrefix
   }));
+  assert.equal(calls, 2, "失败应自动重试一次");
+});
+
+test("refineTitleAndBody：第一次只思考不输出，重试后成功（治光想不写）", async () => {
+  let calls = 0;
+  const mc = {
+    sample: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("模型未回复正文，请检查思考内容或稍后重试。");
+      return '{"title":"小花 回你啦！","body":"这次给出正文啦～"}';
+    }
+  };
+  const r = await refineTitleAndBody({
+    mc, agentName: "小花", style: style("gentle"), kind: "first", snippet: "x", count: 1, sessionTitle: "设置面板优化", sessionPrefix
+  });
+  assert.equal(calls, 2);
+  assert.equal(r.title, "设置面板优化 · 小花 回你啦！");
+  assert.equal(r.body, "这次给出正文啦～");
+});
+
+test("refineTitleAndBody：第一次 JSON 格式错，重试后成功", async () => {
+  let calls = 0;
+  const mc = {
+    sample: async () => {
+      calls += 1;
+      if (calls === 1) return '{"title": "小花回你啦~", "body": "表情';
+      return '{"title":"小花 回你啦！","body":"格式对了～"}';
+    }
+  };
+  const r = await refineTitleAndBody({
+    mc, agentName: "小花", style: style("gentle"), kind: "first", snippet: "x", count: 1, sessionPrefix
+  });
+  assert.equal(calls, 2);
+  assert.equal(r.title, "小花 回你啦！");
+});
+
+test("parseRefineResultLenient：Markdown 代码块围栏可剥离", () => {
+  const r = parseRefineResultLenient('```json\n{"title":"小花 回你啦！","body":"搞定～"}\n```');
+  assert.equal(r.title, "小花 回你啦！");
+});
+
+test("parseRefineResultLenient：前后有解释文字也能抠出 JSON", () => {
+  const r = parseRefineResultLenient('好的，我来改写：\n{"title":"小花 回你啦！","body":"搞定～"}\n希望你喜欢！');
+  assert.equal(r.title, "小花 回你啦！");
 });

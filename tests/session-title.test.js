@@ -7,7 +7,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 
-import { loadSessionTitles, findSessionTitle, getSessionTitle, resolveSessionTitle } from "../lib/session-title.js";
+import { loadSessionTitles, findSessionTitle, getSessionTitle, resolveSessionTitle, resolveSessionTitleWithRetry } from "../lib/session-title.js";
 
 const SESSION_DIR = "sessions";
 const SAMPLE = {
@@ -101,4 +101,30 @@ test("resolveSessionTitle：接口返回空也回退文件版", async () => {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("resolveSessionTitleWithRetry：第一次查不到，重试后拿到（新会话标题异步生成）", async () => {
+  let calls = 0;
+  const bus = {
+    request: async () => {
+      calls += 1;
+      if (calls === 1) return { titles: {} };
+      return { titles: { "/x/y/s.jsonl": "设置面板风格优化建议" } };
+    }
+  };
+  const title = await resolveSessionTitleWithRetry({
+    bus, agentsHome: "/a", agentId: "hanako", sessionPath: "/x/y/s.jsonl", sessionId: "file-name", retryDelayMs: 5
+  });
+  assert.equal(title, "设置面板风格优化建议");
+  assert.equal(calls, 2);
+});
+
+test("resolveSessionTitleWithRetry：两次都查不到返回 null", async () => {
+  let calls = 0;
+  const bus = { request: async () => { calls += 1; return { titles: {} }; } };
+  const title = await resolveSessionTitleWithRetry({
+    bus, agentsHome: "/nonexist", agentId: "hanako", sessionPath: "/x/y/s.jsonl", sessionId: "f", retryDelayMs: 5
+  });
+  assert.equal(title, null);
+  assert.equal(calls, 2);
 });

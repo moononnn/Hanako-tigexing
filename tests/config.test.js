@@ -22,12 +22,18 @@ function tmpCtx() {
 
 test("normalizeConfig：默认值齐全，非法输入回退默认", () => {
   assert.equal(normalizeConfig(null).refineEnabled, false);
+  assert.equal(normalizeConfig(null).toastDuration, "default");
+  assert.equal(normalizeConfig(null).scheduledTakeover, true);
   assert.equal(normalizeConfig(undefined).enabled, true);
   assert.equal(normalizeConfig("字符串").chatTrigger, DEFAULT_CONFIG.chatTrigger);
-  const ok = normalizeConfig({ enabled: false, refineEnabled: true, chatTrigger: "always" });
+  const ok = normalizeConfig({ enabled: false, refineEnabled: true, chatTrigger: "always", scheduledTakeover: false });
   assert.equal(ok.enabled, false);
   assert.equal(ok.refineEnabled, true);
   assert.equal(ok.chatTrigger, "always");
+  assert.equal(ok.scheduledTakeover, false);
+  assert.equal(normalizeConfig({ toastDuration: "long" }).toastDuration, "long");
+  assert.equal(normalizeConfig({ toastDuration: "short" }).toastDuration, "default");
+  assert.equal(normalizeConfig({ toastDuration: 25 }).toastDuration, "default");
 });
 
 test("normalizeConfig：soundDir 只收绝对路径，相对/超长/非字符串回默认", () => {
@@ -60,6 +66,17 @@ test("配置读：文件不存在用默认值，写入后可读回", async () =>
   const cm2 = createConfigManager(ctx);
   assert.equal(cm2.get().refineEnabled, true, "新实例从文件读到已保存配置");
 
+  fs.rmSync(ctx.dir, { recursive: true, force: true });
+});
+
+test("旧配置无 scheduledTakeover 字段时，升级后保持默认接管", () => {
+  const ctx = tmpCtx();
+  const fp = configFilePath(ctx.dataDir, ctx.pluginId);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, JSON.stringify({ scheduledTrigger: "whenUnfocused" }), "utf8");
+
+  const cm = createConfigManager(ctx);
+  assert.equal(cm.get().scheduledTakeover, true);
   fs.rmSync(ctx.dir, { recursive: true, force: true });
 });
 
@@ -118,4 +135,28 @@ test("normalizeConfig：agentStyles 白名单应包含扩展风格（回归：�
   // 基础风格照常
   const norm3 = normalizeConfig({ agentStyles: { hanako: "epistle" } });
   assert.equal(norm3.agentStyles.hanako, "epistle", "基础风格照常保留");
+});
+
+test("normalizeConfig：agentTriggers 只收聊天档位白名单，其余助手跟随全局", () => {
+  // 默认空对象
+  assert.deepEqual(normalizeConfig(null).agentTriggers, {}, "默认无按助手设置");
+
+  // 合法档位全部保留
+  const ok = normalizeConfig({ agentTriggers: { xiansheng: "never", hanako: "always", yumi: "whenSessionUnfocused", yukina: "whenUnfocused" } });
+  assert.equal(ok.agentTriggers.xiansheng, "never");
+  assert.equal(ok.agentTriggers.hanako, "always");
+  assert.equal(ok.agentTriggers.yumi, "whenSessionUnfocused");
+  assert.equal(ok.agentTriggers.yukina, "whenUnfocused");
+
+  // 非法档位 / 非对象输入被过滤，不留脏数据
+  const bad = normalizeConfig({ agentTriggers: { xiansheng: "sometimes", hanako: 123, yumi: { a: 1 } } });
+  assert.deepEqual(bad.agentTriggers, {}, "非法值应全部过滤");
+
+  // 数组视为非法（引用类型防御）
+  const arr = normalizeConfig({ agentTriggers: ["never"] });
+  assert.deepEqual(arr.agentTriggers, {}, "数组输入被忽略");
+
+  // 任务档位（whenUnfocused 之外的 scheduled 专属值）不在聊天白名单
+  const sched = normalizeConfig({ agentTriggers: { xiansheng: "always" } });
+  assert.equal(sched.agentTriggers.xiansheng, "always");
 });

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ROUTE = fs.readFileSync(path.join(ROOT, "routes", "api.js"), "utf8");
 const FEEDBACK_UI = fs.readFileSync(path.join(ROOT, "lib", "feedback", "ui", "feedback.js"), "utf8");
+const FEEDBACK_CSS = fs.readFileSync(path.join(ROOT, "lib", "feedback", "ui", "feedback.css"), "utf8");
 
 test("分享入口：页面保留检查更新和反馈的自然落点", () => {
   assert.match(ROUTE, /class="card support-card"/);
@@ -27,11 +28,29 @@ test("分享入口：后端注册更新检查和反馈聊天路由", () => {
   assert.match(ROUTE, /app\.post\("\/api\/feedback\/chat\/close"/);
 });
 
+test("计划任务接管：页面保留总开关、关闭态说明和禁用态容器", () => {
+  assert.match(ROUTE, /id="sw-scheduled-takeover"/);
+  assert.match(ROUTE, /id="scheduled-off-note"/);
+  assert.match(ROUTE, /id="scheduled-options"/);
+  assert.match(ROUTE, /scheduledTakeover/);
+  assert.match(ROUTE, /role="switch" aria-checked=/);
+});
+
 test("分享入口：反馈弹窗脱离会 hover 的卡片，保持 fixed 定位稳定", () => {
   assert.match(ROUTE, /反馈弹窗放在卡片外/);
   assert.match(ROUTE, /#fb-open-btn \{ display:none; \}/);
+  assert.match(FEEDBACK_UI, /class="tg-feedback-modal"/);
+  assert.match(FEEDBACK_UI, /class="tg-feedback-dialog"/);
   assert.match(FEEDBACK_UI, /role="dialog" aria-modal="true"/);
   assert.match(FEEDBACK_UI, /Escape/);
+});
+
+test("分享入口：反馈弹窗使用新外壳，纯色柔和圆角且无灰影", () => {
+  assert.match(FEEDBACK_UI, /tg-feedback-backdrop/);
+  assert.doesNotMatch(FEEDBACK_UI, /class="fb-modal/);
+  assert.doesNotMatch(ROUTE, /\.fb-modal-panel/);
+  assert.match(FEEDBACK_CSS, /\.tg-feedback-dialog \{[\s\S]*background-color: var\(--card/);
+  assert.match(FEEDBACK_CSS, /border: 0;[\s\S]*border-radius: 18px;[\s\S]*box-shadow: none;[\s\S]*filter: none;/);
 });
 
 test("分享入口：积木请求拿到原始 Response，避免二次 json 解析", () => {

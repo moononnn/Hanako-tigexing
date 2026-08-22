@@ -1,7 +1,22 @@
-// 提个醒 · 事件解析测试
+﻿// 提个醒 · 事件解析测试
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseTurnEnd, parseActivityUpdate, sessionIdFromPath, extractAssistantText, stripMetaBlocks, isFinalTurn } from "../lib/event-parse.js";
+import {
+  parseTurnEnd,
+  parseTurnFailure,
+  parseProviderError,
+  parseSessionAbort,
+  isUserInitiatedAbortReason,
+  parseAutoRetryStart,
+  parseAutoRetryEnd,
+  parseSessionUnhealthyWarning,
+  parseActivityUpdate,
+  sessionIdFromPath,
+  agentIdFromSessionPath,
+  extractAssistantText,
+  stripMetaBlocks,
+  isFinalTurn
+} from "../lib/event-parse.js";
 
 test("非 turn_end 事件返回 null", () => {
   assert.equal(parseTurnEnd({ type: "turn_start", agentId: "hanako" }, null), null);
@@ -21,7 +36,8 @@ test("activity_update：cron 解析为计划任务完成", () => {
       agentId: "hanako",
       agentName: "小花",
       summary: "每日备份 执行成功",
-      status: "done"
+      status: "done",
+      sessionFile: "cron_123.jsonl"
     }
   };
   const r = parseActivityUpdate(ev);
@@ -30,6 +46,7 @@ test("activity_update：cron 解析为计划任务完成", () => {
   assert.equal(r.agentName, "小花");
   assert.equal(r.label, "每日备份");
   assert.equal(r.status, "done");
+  assert.equal(r.sessionFile, "cron_123.jsonl");
 });
 
 test("activity_update：heartbeat 解析为巡检", () => {
@@ -106,7 +123,7 @@ test("提取文本：mood 块在中间也能滤掉", () => {
     role: "assistant",
     content: [{ type: "text", text: "开头正文 <mood>Vibe: 内心戏</mood> 结尾正文" }]
   };
-  assert.equal(extractAssistantText(msg), "开头正文 结尾正文");
+  assert.equal(extractAssistantText(msg), "开头正文结尾正文");
 });
 
 test("stripMetaBlocks：未闭合 mood 开头残留被清掉", () => {
@@ -122,7 +139,7 @@ test("stripMetaBlocks：方括号 [mood] 开头也能滤掉（DSv4 混搭格式�
   // 方括号完整闭合
   assert.equal(stripMetaBlocks("[mood]Vibe: 内心戏[/mood]正文"), "正文");
   // 正文中间混搭块（真实形态：方括号开 + 尖括号闭）
-  assert.equal(stripMetaBlocks("开头正文 [mood]Vibe: 内心戏</mood> 结尾正文"), "开头正文 结尾正文");
+  assert.equal(stripMetaBlocks("开头正文 [mood]Vibe: 内心戏</mood> 结尾正文"), "开头正文结尾正文");
   // 未闭合方括号开头残留
   assert.equal(stripMetaBlocks("[mood]Vibe: 没写完的内心戏"), "");
   // 正常正文不受影响
@@ -157,4 +174,123 @@ test("isFinalTurn：只认 stop 或缺失", () => {
   assert.equal(isFinalTurn(""), true);
   assert.equal(isFinalTurn("toolUse"), false);
   assert.equal(isFinalTurn("length"), false);
+});
+
+// ── 异常回合事件（只观察，不续接） ──
+
+const sessionPath = "C:/Users/x/.hanako/agents/hanako/sessions/turn-1.jsonl";
+
+test("异常事件：从 sessionPath 推导助手和会话", () => {
+  assert.equal(agentIdFromSessionPath(sessionPath), "hanako");
+  const r = parseTurnFailure({
+    type: "turn_end",
+    message: {
+      stopReason: "error",
+      errorMessage: "WebSocket error",
+      content: [{ type: "text", text: "已经收到一半" }]
+    }
+  }, sessionPath);
+  assert.equal(r.agentId, "hanako");
+  assert.equal(r.sessionId, "turn-1");
+  assert.equal(r.text, "已经收到一半");
+  assert.equal(r.errorMessage, "WebSocket error");
+});
+
+test("异常事件：正常 stop 和工具中间轮不进入失败解析", () => {
+  assert.equal(parseTurnFailure({ type: "turn_end", message: { stopReason: "stop", content: [] } }, sessionPath), null);
+  assert.equal(parseTurnFailure({ type: "turn_end", message: { stopReason: "toolUse", content: [] } }, sessionPath), null);
+});
+
+test("异常事件：非主动超时释放进入失败解析，主动停止过滤", () => {
+  const timeout = parseTurnFailure({ type: "turn_end", aborted: true, reason: "turn_stall_timeout" }, sessionPath);
+  assert.equal(timeout.reason, "turn_stall_timeout");
+  assert.equal(timeout.errorMessage, "turn_stall_timeout");
+  assert.equal(parseTurnFailure({ type: "turn_end", aborted: true, reason: "abort" }, sessionPath), null);
+  assert.equal(isUserInitiatedAbortReason("close_all"), true);
+});
+
+test("异常事件：error 和 session_status 释放可作为兜底", () => {
+  const provider = parseProviderError({ type: "error", message: "fetch failed" }, sessionPath);
+  assert.equal(provider.sessionId, "turn-1");
+  assert.equal(provider.errorMessage, "fetch failed");
+  const abort = parseSessionAbort({ type: "session_status", isStreaming: false, aborted: true, reason: "turn_stall_timeout" }, sessionPath);
+  assert.equal(abort.reason, "turn_stall_timeout");
+  assert.equal(parseSessionAbort({ type: "session_status", isStreaming: false, aborted: true, reason: "abort_all" }, sessionPath), null);
+});
+
+test("异常事件：自动重试开始/结束解析", () => {
+  const start = parseAutoRetryStart({ type: "auto_retry_start", attempt: 2, maxAttempts: 3, errorMessage: "fetch failed" }, sessionPath);
+  assert.equal(start.agentId, "hanako");
+  assert.equal(start.attempt, 2);
+  assert.equal(start.maxAttempts, 3);
+  assert.equal(start.errorMessage, "fetch failed");
+
+  const failed = parseAutoRetryEnd({ type: "auto_retry_end", success: false, attempt: 3, finalError: "WebSocket error" }, sessionPath);
+  assert.equal(failed.success, false);
+  assert.equal(failed.attempt, 3);
+  assert.equal(failed.finalError, "WebSocket error");
+
+  const success = parseAutoRetryEnd({ type: "auto_retry_end", success: true, attempt: 1 }, sessionPath);
+  assert.equal(success.success, true);
+});
+
+test("异常事件：会话不健康警告保留计数", () => {
+  const r = parseSessionUnhealthyWarning({ type: "session_unhealthy_warning", recentErrors: 4, totalChecked: 4 }, sessionPath);
+  assert.equal(r.agentId, "hanako");
+  assert.equal(r.recentErrors, 4);
+  assert.equal(r.totalChecked, 4);
+  assert.equal(parseSessionUnhealthyWarning({ type: "session_status" }, sessionPath), null);
+});
+
+
+// ── 思考链块剥离（v0.4.11 新增修复：通知文案漏思考链） ──
+
+test("stripMetaBlocks：剥离反引号 think 块（MiniMax-M3 默认，闭标签带斜杠）", () => {
+  const ml = "好的\x60think\x3e哦，用户在看视频\n\x60\x2fthink\x3e这条弹幕不错";
+  assert.equal(stripMetaBlocks(ml), "好的这条弹幕不错");
+  const inline = "前\x60think\x3e思考\x60\x2fthink\x3e后";
+  assert.equal(stripMetaBlocks(inline), "前后");
+});
+
+test("stripMetaBlocks：剥离 <thinking>...</thinking> 块（Anthropic / 通用 XML）", () => {
+  assert.equal(stripMetaBlocks("前\x3cthinking\x3e内部思考\x3c\x2fthinking\x3e后"), "前后");
+  assert.equal(stripMetaBlocks("\x3cthinking\x3e多行\n思考\x3c\x2fthinking\x3e\n正文"), "正文");
+  assert.equal(stripMetaBlocks("<mood>Vibe: 内心戏</mood>\x3cthinking\x3e思考\x3c\x2fthinking\x3e真想说"), "真想说");
+});
+
+test("stripMetaBlocks：think 块开头未闭合残留被清掉", () => {
+  assert.equal(stripMetaBlocks("\x60think\x3eVibe: 还没想完"), "");
+  assert.equal(stripMetaBlocks("\x3cthinking\x3e思考被打断"), "");
+  assert.equal(stripMetaBlocks("  正常正文"), "正常正文");
+});
+
+test("提取文本：含 think 块的 text part 也能清掉（关键回归）", () => {
+  const msg = {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "独立 thinking part 直接跳过" },
+      { type: "text", text: "\x60think\x3e哦，问用户选择的面板弹不出来——解…\x60\x2fthink\x3e这是真想说" }
+    ]
+  };
+  assert.equal(extractAssistantText(msg), "这是真想说");
+});
+
+test("提取文本：仅含 think 块的纯思考回复返回空串（兜底）", () => {
+  const msg = {
+    role: "assistant",
+    content: [
+      { type: "text", text: "\x60think\x3e纯粹思考\x60\x2fthink\x3e" }
+    ]
+  };
+  assert.equal(extractAssistantText(msg), "");
+});
+
+test("提取文本：think 块 + mood 块混搭都剥离", () => {
+  const msg = {
+    role: "assistant",
+    content: [
+      { type: "text", text: "<mood>\nVibe: 内心戏\n</mood>\n\n\x60think\x3e思考\x60\x2fthink\x3e\n真正的回复" }
+    ]
+  };
+  assert.equal(extractAssistantText(msg), "真正的回复");
 });

@@ -1,6 +1,6 @@
 // 提个醒 · 主入口（lifecycle 插件）
-// 小喇叭的耳朵——订阅 bus 事件流，监听「回合完成」（turn_end），
-// 按策略弹 Windows toast。
+// 小喇叭的耳朵——订阅 bus 事件流，监听正常回合、自动重试和异常释放，
+// 按策略弹 Windows toast；异常路径只提醒，不自动续接。
 //
 // v0.2 改造（2026-08-16，分享版）：
 //   - 监听机制从 Pi SDK Extension onResponse 换成 bus.subscribe(turn_end)
@@ -14,22 +14,43 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 
-import { Notifier, isInQuietHours } from "./lib/policy.js";
+import { Notifier, isInQuietHours, resolveChatTrigger } from "./lib/policy.js";
 import { createConfigManager } from "./lib/config.js";
 import { sendToast } from "./lib/toast.js";
-import { parseTurnEnd, parseActivityUpdate, isFinalTurn } from "./lib/event-parse.js";
+import {
+  parseTurnEnd,
+  parseTurnFailure,
+  parseProviderError,
+  parseSessionAbort,
+  parseAutoRetryStart,
+  parseAutoRetryEnd,
+  parseSessionUnhealthyWarning,
+  parseActivityUpdate,
+  sessionIdFromPath,
+  agentIdFromSessionPath,
+  isFinalTurn,
+  isUserInitiatedAbortReason
+} from "./lib/event-parse.js";
+import { ActivityNotificationTracker, resolveActivitySessionPath } from "./lib/activity-notify.js";
 import { resolveAgentAvatar } from "./lib/agent-avatar.js";
 import { isHanaFocused } from "./lib/window-focus.js";
 import { resolveSound } from "./lib/sounds.js";
-import { resolveSessionTitle } from "./lib/session-title.js";
+import { resolveSessionTitleWithRetry } from "./lib/session-title.js";
 import { getStyle, sessionPrefix } from "./lib/style.js";
 import { ModelConfig } from "./lib/model-config/index.js";
 import { refineTitleAndBody } from "./lib/refine.js";
 import { setupExtraStyles } from "./lib/dialect-links.js";
+import { AbnormalTurnTracker, ABNORMAL_FAILURE_GRACE_MS } from "./lib/abnormal-state.js";
+import { buildAbnormalCopy, isRetryCancelled } from "./lib/abnormal-copy.js";
+import { TurnTrace } from "./lib/turn-trace.js";
 
 const HANA_HOME = process.env.HANA_HOME || path.join(os.homedir(), ".hanako");
 // 「当前窗口」判定阈值：该会话最近 X 毫秒内有用户消息 → 认为是正在看的窗口
 const ACTIVE_WINDOW_MS = 120 * 1000;
+// 宿主先发 activity_update，再按原版设置发送完成通知；留一点窗口等通知事件到达后再去重。
+const ACTIVITY_NOTIFICATION_GRACE_MS = 1500;
+// turn_end(error) 先等宿主决定是否进入自动重试；未进入时才做兜底提醒。
+const ABNORMAL_TURN_GRACE_MS = ABNORMAL_FAILURE_GRACE_MS;
 
 // 调试日志（排查用，写插件数据目录，不进发布包）
 function dbgLog(dataDir, line) {
@@ -51,6 +72,12 @@ export default class TigexingPlugin {
     this._agentNames = {};
     this._lastUserMsgAt = new Map(); // sessionId -> ts（最近一次用户消息）
     this._timers = new Map();
+    this._activityNotifications = new ActivityNotificationTracker();
+    this._abnormal = new AbnormalTurnTracker({
+      graceMs: ABNORMAL_TURN_GRACE_MS,
+      onAlert: (alert) => this._handleAbnormalAlert(alert)
+    });
+    this._turnTrace = new TurnTrace({ dataDir: this._dataDir });
 
     this._config = createConfigManager({ dataDir: this._dataDir, pluginId: ctx.pluginId, log: ctx.log });
     this._notifier = new Notifier(this._config.get());
@@ -91,13 +118,67 @@ export default class TigexingPlugin {
           // 高频噪音事件不落盘（避免日志爆炸），只记关键事件
           const noisy = et === "message_update" || et === "llm_usage" || et === "resource.changed" || et === "bridge_status" || et === "message_start" || et === "tool_execution_update" || et === "session_status" || et === "agent_start";
           if (!noisy) dbgLog(this._dataDir, `事件 ${et} path=${scopedSessionPath || "无"}`);
-          // 1) 用户消息：记下会话的最后活跃时间（用于「当前窗口」判定）
-          if (event?.type === "session_user_message") {
-            const sid = scopedSessionPath ? scopedSessionPath.split(/[\\/]/).pop()?.replace(/\.jsonl$/i, "") : null;
-            if (sid) this._lastUserMsgAt.set(sid, Date.now());
+          // 宿主通知事件先记下来；后续 activity_update 到达时用同一 sessionFile 去重。
+          if (event?.type === "notification") {
+            const notificationPath = scopedSessionPath || event?.sessionFile || event?.sessionPath;
+            if (this._activityNotifications.mark(notificationPath)) {
+              dbgLog(this._dataDir, `已记录宿主活动通知: ${notificationPath}`);
+            }
             return;
           }
-          // 1.5) 计划任务 / 巡检完成（接管 Hana 原版两项通知）
+          // 1) 用户消息：记下会话的最后活跃时间，开启新的异常提醒周期，并标记活跃回合（进程被杀时重启补弹用）。
+          if (event?.type === "session_user_message") {
+            const sid = sessionIdFromPath(scopedSessionPath);
+            if (sid) {
+              this._lastUserMsgAt.set(sid, Date.now());
+              this._abnormal.beginUserTurn(sid);
+              this._turnTrace.markActive(sid, {
+                agentId: agentIdFromSessionPath(scopedSessionPath) || "unknown",
+                sessionPath: scopedSessionPath || ""
+              });
+            }
+            return;
+          }
+          // 1.1) 自动重试状态：turn_end(error) 只做候选记录，等宿主决定是否重试耗尽。
+          const retryStart = parseAutoRetryStart(event, scopedSessionPath);
+          if (retryStart) {
+            this._abnormal.onRetryStart(retryStart.sessionId);
+            dbgLog(this._dataDir, `自动重试开始: sessionId=${retryStart.sessionId} attempt=${retryStart.attempt}/${retryStart.maxAttempts}`);
+            return;
+          }
+          const retryEnd = parseAutoRetryEnd(event, scopedSessionPath);
+          if (retryEnd) {
+            this._abnormal.onRetryEnd(retryEnd);
+            // 重试成功 = 回合正常结束，擦掉活跃追踪
+            if (retryEnd.success) this._turnTrace.clearActive(retryEnd.sessionId);
+            dbgLog(this._dataDir, `自动重试结束: sessionId=${retryEnd.sessionId} success=${retryEnd.success} finalError=${retryEnd.finalError || "无"}`);
+            return;
+          }
+          // 1.2) provider 错误 / 强制释放兜底。通常会和 turn_end 成对出现，状态机负责去重。
+          const providerError = parseProviderError(event, scopedSessionPath);
+          if (providerError) {
+            if (this._lastUserMsgAt.has(providerError.sessionId)) this._abnormal.onTurnFailure(providerError);
+            return;
+          }
+          const sessionAbort = parseSessionAbort(event, scopedSessionPath);
+          if (sessionAbort) {
+            if (this._lastUserMsgAt.has(sessionAbort.sessionId)) this._abnormal.onTurnFailure(sessionAbort);
+            return;
+          }
+          // 1.3) 会话恢复时的连续失败警告。只处理当前进程里用户实际参与过的会话，避免启动时翻旧账。
+          const unhealthy = parseSessionUnhealthyWarning(event, scopedSessionPath);
+          if (unhealthy) {
+            if (this._lastUserMsgAt.has(unhealthy.sessionId)) this._abnormal.onSessionUnhealthy(unhealthy);
+            return;
+          }
+          // 1.3) 失败回合：记录部分正文和错误原因；没有进入自动重试时由状态机兜底提醒。
+          const failure = parseTurnFailure(event, scopedSessionPath);
+          if (failure) {
+            if (this._lastUserMsgAt.has(failure.sessionId)) this._abnormal.onTurnFailure(failure);
+            dbgLog(this._dataDir, `记录异常回合: sessionId=${failure.sessionId} textLen=${String(failure.text).length} error=${failure.errorMessage || "无"}`);
+            return;
+          }
+          // 1.5) 计划任务 / 巡检完成（接管自动完成通知，并对已有通知去重）
           const act = parseActivityUpdate(event);
           if (act) {
             this._handleActivityUpdate(act);
@@ -106,7 +187,15 @@ export default class TigexingPlugin {
           // 2) 回合完成
           const info = parseTurnEnd(event, scopedSessionPath);
           if (!info) return;
-          dbgLog(this._dataDir, `解析到 turn_end: agent=${info.agentId} stopReason=${info.stopReason} textLen=${String(info.text).length}`);
+          dbgLog(this._dataDir, `解析到 turn_end: agent=${info.agentId} stopReason=${info.stopReason} aborted=${info.aborted} textLen=${String(info.text).length}`);
+          // 用户主动停止/关闭：回合已结束，擦掉活跃追踪（不留残留，避免下次重启误报）。
+          if (info.aborted && isUserInitiatedAbortReason(info.reason)) {
+            this._turnTrace.clearActive(info.sessionId);
+          }
+          if (isFinalTurn(info.stopReason) && !info.aborted && info.stopReason !== "error") {
+            this._abnormal.onTurnSuccess(info.sessionId);
+            this._turnTrace.clearActive(info.sessionId);
+          }
           this._handleTurnEnd(info);
         } catch (err) {
           dbgLog(this._dataDir, `事件处理异常: ${err?.stack || err?.message || err}`);
@@ -120,14 +209,25 @@ export default class TigexingPlugin {
     }
 
     ctx.log.info("[提个醒] 小喇叭已戴上（bus 监听）");
+
+    // 重启补弹：Hana 非正常退出时，把「没走完的回合」补提醒给用户（对话框断了）。
+    // 等几秒让宿主恢复 + 助手名单刷新完成，再查残留并弹。
+    this._restoreTimer = setTimeout(() => {
+      this._handleRestoredInterrupts().catch(() => {});
+    }, 4000);
+    this._restoreTimer.unref?.();
   }
 
   async onunload() {
     if (this._off) this._off();
+    if (this._restoreTimer) clearTimeout(this._restoreTimer);
     for (const [sid, t] of this._timers) {
       clearTimeout(t);
       this._timers.delete(sid);
     }
+    this._abnormal?.dispose();
+    // 正常退出：清空活跃回合追踪，重启后不补弹（用户知道自己关了 Hana）。
+    this._turnTrace?.markCleanShutdown();
     this._log?.info?.("[提个醒] 小喇叭已摘下");
   }
 
@@ -152,15 +252,191 @@ export default class TigexingPlugin {
     return agentId || "助手";
   }
 
-  // ─── 计划任务 / 巡检完成（接管 Hana 原版两项通知） ───
+  // ─── 重启补弹：上次进程非正常退出时，把没走完的回合提醒给用户 ───
+  async _handleRestoredInterrupts() {
+    try {
+      const interrupted = this._turnTrace.readInterrupted();
+      if (!interrupted.length) {
+        this._turnTrace.reset();
+        return;
+      }
+      await this._refreshAgents();
+      const cfg = this._config.get();
+      for (const s of interrupted) {
+        const agentName = this._agentName(s.agentId);
+        const sessionTitle = await resolveSessionTitleWithRetry({
+          bus: this.ctx.bus,
+          agentsHome: this._agentsHome,
+          agentId: s.agentId,
+          sessionPath: s.sessionPath || undefined,
+          sessionId: s.sessionId
+        });
+        const title = sessionTitle
+          ? `${sessionPrefix(sessionTitle)}${agentName} · 上次对话被打断`
+          : `${agentName} · 上次对话被打断`;
+        const body = "对话框在退出前没有完成回复，可能需要重启 Hana 恢复";
+        const avatar = resolveAgentAvatar(this._agentsHome, s.agentId);
+        sendToast({
+          pluginDir: this._pluginDir,
+          title,
+          message: body,
+          style: "icon",
+          icon: avatar || undefined,
+          duration: cfg.toastDuration,
+          log: this._log
+        });
+        dbgLog(this._dataDir, `重启补弹: sessionId=${s.sessionId} title=${title}`);
+      }
+      this._turnTrace.reset();
+    } catch (err) {
+      dbgLog(this._dataDir, `重启补弹异常: ${err?.stack || err?.message || err}`);
+    }
+  }
+
+  // ─── 异常回合提醒（只提醒，不续接、不注入） ───
+  async _handleAbnormalAlert(alert) {
+    try {
+      const sessionId = String(alert?.sessionId || "");
+      const agentId = String(alert?.agentId || "unknown");
+      if (!sessionId || sessionId === "unknown" || !this._lastUserMsgAt.has(sessionId)) {
+        dbgLog(this._dataDir, `异常提醒拦截: 无用户会话 sessionId=${sessionId || "无"}`);
+        return;
+      }
+      if (alert?.kind === "failure" && isRetryCancelled(alert.finalError)) {
+        dbgLog(this._dataDir, `异常提醒拦截: 用户主动取消重试 sessionId=${sessionId}`);
+        return;
+      }
+
+      const cfg = this._config.get();
+      const chatTrigger = resolveChatTrigger(cfg, agentId);
+      if (!cfg.enabled || chatTrigger === "never") {
+        dbgLog(this._dataDir, `异常提醒拦截: enabled=${cfg.enabled} chatTrigger=${chatTrigger}`);
+        return;
+      }
+      if (isInQuietHours(cfg)) {
+        dbgLog(this._dataDir, `异常提醒拦截: 静默时段 sessionId=${sessionId}`);
+        return;
+      }
+      if (chatTrigger === "whenUnfocused") {
+        const focused = await isHanaFocused();
+        if (focused) return;
+      } else if (chatTrigger === "whenSessionUnfocused") {
+        const lastUserAt = this._lastUserMsgAt.get(sessionId) || 0;
+        if (Date.now() - lastUserAt < ACTIVE_WINDOW_MS) return;
+      }
+
+      const agentName = this._agentName(agentId);
+      const fallback = buildAbnormalCopy({
+        kind: alert.kind,
+        agentName,
+        sessionTitle: "",
+        partialText: alert.text,
+        errorMessage: alert.finalError || alert.errorMessage,
+        recentErrors: alert.recentErrors,
+        totalChecked: alert.totalChecked
+      });
+      let title = fallback.title;
+      let body = fallback.body;
+      const styleId = (cfg.agentStyles || {})[agentId] || "default";
+      const style = getStyle(styleId);
+
+      // 沿用提个醒现有的可选润色开关；失败自动退回上面的规则版。
+      if (cfg.refineEnabled && style.refinable) {
+        try {
+          const refined = await refineTitleAndBody({
+            mc: this._refineMc,
+            agentName,
+            style,
+            kind: alert.kind === "unhealthy" ? "unhealthy" : "failure",
+            snippet: alert.text || (alert.kind === "unhealthy"
+              ? `最近 ${alert.recentErrors || 0}/${alert.totalChecked || 0} 次回复失败`
+              : "模型连接中断，请说继续再试"),
+            count: 1,
+            failureReason: alert.finalError || alert.errorMessage || "",
+            sessionTitle: "",
+            sessionPrefix,
+            timeoutMs: 8000
+          });
+          title = refined.title;
+          body = refined.body;
+          dbgLog(this._dataDir, `异常提醒润色成功: title=${title} body=${body}`);
+        } catch (err) {
+          dbgLog(this._dataDir, `异常提醒润色失败降级规则版: ${err?.message || err}`);
+        }
+      }
+
+      // 会话标题查询挪到润色之后（润色耗时正好给宿主异步起名留时间），查不到再补一次短重试
+      const sessionTitle = await resolveSessionTitleWithRetry({
+        bus: this.ctx.bus,
+        agentsHome: this._agentsHome,
+        agentId,
+        sessionPath: alert.sessionPath,
+        sessionId
+      });
+      if (sessionTitle) {
+        title = sessionPrefix(sessionTitle) + title;
+      }
+
+      const avatar = resolveAgentAvatar(this._agentsHome, agentId);
+      const soundCfg = (cfg.agentSounds || {})[agentId] || "default";
+      let sound;
+      if (soundCfg === "silent") {
+        sound = "silent";
+      } else if (soundCfg && soundCfg !== "default") {
+        sound = resolveSound(this._dataDir, soundCfg, cfg.soundDir) || undefined;
+      }
+
+      sendToast({
+        pluginDir: this._pluginDir,
+        title,
+        message: body,
+        style: cfg.toastStyle === "plain" ? "plain" : "icon",
+        icon: avatar || undefined,
+        sound,
+        duration: cfg.toastDuration,
+        log: this._log
+      });
+      dbgLog(this._dataDir, `异常提醒已弹: source=${alert.source} kind=${alert.kind} sessionId=${sessionId} title=${title} body=${body}`);
+      // 异常回合已提醒 = 回合告一段落，擦掉活跃追踪（重启补弹不重复提醒）
+      this._turnTrace.clearActive(sessionId);
+      this._log?.info?.("[提个醒] 异常回合已提醒", { source: alert.source, kind: alert.kind, agentId, sessionId });
+    } catch (err) {
+      dbgLog(this._dataDir, `异常回合提醒异常: ${err?.stack || err?.message || err}`);
+      this._log?.error?.("[提个醒] 异常回合提醒异常", { error: err?.message || err });
+    }
+  }
+
+  // ─── 计划任务 / 巡检完成（接管自动完成通知） ───
   async _handleActivityUpdate(act) {
     try {
-      const cfg = this._config.get();
-      // 计划任务 / 巡检完成（接管 Hana 原版两项通知）：各用各的档位（跟原版一致）
+      let cfg = this._config.get();
+      // 计划任务 / 巡检各用各的档位；计划任务另有总接管开关。
       const triggerKey = act.kind === "scheduled" ? "scheduledTrigger" : "patrolTrigger";
-      const trigger = cfg[triggerKey] || "whenUnfocused";
+      let trigger = cfg[triggerKey] || "whenUnfocused";
       if (!cfg.enabled || trigger === "never") {
         dbgLog(this._dataDir, `活动通知拦截: ${triggerKey}=${trigger}`);
+        return;
+      }
+      if (act.kind === "scheduled" && !cfg.scheduledTakeover) {
+        dbgLog(this._dataDir, "活动通知拦截: 计划任务接管已关闭");
+        return;
+      }
+      if (act.kind === "scheduled") {
+        // 宿主 0.447.4 的顺序是 activity_update → 原版 completion notification；
+        // 等待后再查一次，才能同时覆盖原版通知和任务自己调用的 notify。
+        await new Promise((resolve) => setTimeout(resolve, ACTIVITY_NOTIFICATION_GRACE_MS));
+        cfg = this._config.get();
+        trigger = cfg[triggerKey] || "whenUnfocused";
+        if (!cfg.enabled || trigger === "never" || !cfg.scheduledTakeover) {
+          dbgLog(this._dataDir, `活动通知拦截: ${triggerKey}=${trigger} 或计划任务接管已关闭`);
+          return;
+        }
+      }
+      const activitySessionPath = act.kind === "scheduled"
+        ? resolveActivitySessionPath(this._agentsHome, act.agentId, act.sessionFile)
+        : "";
+      if (act.kind === "scheduled" && this._activityNotifications.has(activitySessionPath)) {
+        dbgLog(this._dataDir, `活动通知去重: 任务已有宿主通知 sessionFile=${act.sessionFile || "无"}`);
         return;
       }
       if (trigger === "whenUnfocused") {
@@ -199,6 +475,7 @@ export default class TigexingPlugin {
         style: "icon", // 统一带头像（v0.3.1 拍板）
         icon: avatar || undefined,
         sound,
+        duration: cfg.toastDuration,
         log: this._log
       });
       dbgLog(this._dataDir, `活动通知已弹: kind=${act.kind} status=${act.status} agent=${act.agentId}`);
@@ -231,20 +508,22 @@ export default class TigexingPlugin {
 
       // 每次事件前刷新配置（用户在设置页改过会即时生效）
       const cfg = this._config.get();
-      this._notifier = new Notifier(cfg);
+      // 刷新配置但保留 Notifier.sessions，否则每轮 turn_end 都会把合并窗口清空。
+      this._notifier.config = cfg;
       dbgLog(this._dataDir, `配置: chatTrigger=${cfg.chatTrigger} enabled=${cfg.enabled} mergeWindowMs=${cfg.mergeWindowMs}`);
 
-      // 提醒时机（聊天回复完成，跟原版通知四档一致）
-      if (!cfg.enabled || cfg.chatTrigger === "never") {
-        dbgLog(this._dataDir, `档位拦截: enabled=${cfg.enabled} chatTrigger=${cfg.chatTrigger}`);
+      // 提醒时机（聊天回复完成，跟原版通知四档一致；按助手覆盖优先）
+      const chatTrigger = resolveChatTrigger(cfg, agentId);
+      if (!cfg.enabled || chatTrigger === "never") {
+        dbgLog(this._dataDir, `档位拦截: enabled=${cfg.enabled} chatTrigger=${chatTrigger} agent=${agentId}`);
         return;
       }
-      if (cfg.chatTrigger === "always") {
+      if (chatTrigger === "always") {
         // 总是提醒，不做焦点/窗口判定
-      } else if (cfg.chatTrigger === "whenUnfocused") {
+      } else if (chatTrigger === "whenUnfocused") {
         const focused = await isHanaFocused();
         if (focused) return; // HanaAgent 在前台，不打扰
-      } else if (cfg.chatTrigger === "whenSessionUnfocused") {
+      } else if (chatTrigger === "whenSessionUnfocused") {
         // 焦点不在该聊天时：该会话最近有用户消息 = 正在看 → 不提醒
         const lastUserAt = this._lastUserMsgAt.get(sessionId) || 0;
         if (now - lastUserAt < ACTIVE_WINDOW_MS) return;
@@ -316,15 +595,8 @@ export default class TigexingPlugin {
     const cfg = this._config.get();
     const styleId = (cfg.agentStyles || {})[decision.agentId] || "default";
     const style = getStyle(styleId);
-    // 标题带会话标题（痛点：多窗口时不知道哪个对话框回复完了）；走宿主接口解析 sess_ 映射，失败回退文件版
-    const sessionTitle = await resolveSessionTitle({
-      bus: this.ctx.bus,
-      agentsHome: this._agentsHome,
-      agentId: decision.agentId,
-      sessionPath: decision.sessionPath,
-      sessionId: decision.sessionId
-    });
-    let title = style.title(decision.kind, decision.agentName, decision.count, sessionTitle);
+    // 规则版先按无会话标题构建（标题查询挪到润色之后，给宿主异步起名留时间）
+    let title = style.title(decision.kind, decision.agentName, decision.count, "");
     let body = style.body(decision.kind, decision.snippet, decision.count);
 
     // 文案润色（可选）：语气型风格 + 开关开启 → 模型改写标题正文；失败/超时自动降级规则版
@@ -337,7 +609,7 @@ export default class TigexingPlugin {
           kind: decision.kind,
           snippet: decision.snippet,
           count: decision.count,
-          sessionTitle,
+          sessionTitle: "",
           sessionPrefix,
           timeoutMs: 8000
         });
@@ -347,6 +619,18 @@ export default class TigexingPlugin {
       } catch (err) {
         dbgLog(this._dataDir, `润色失败降级规则版: ${err?.message || err}`);
       }
+    }
+
+    // 会话标题查询挪到润色之后（润色耗时正好给宿主异步起名留时间），查不到再补一次短重试
+    const sessionTitle = await resolveSessionTitleWithRetry({
+      bus: this.ctx.bus,
+      agentsHome: this._agentsHome,
+      agentId: decision.agentId,
+      sessionPath: decision.sessionPath,
+      sessionId: decision.sessionId
+    });
+    if (sessionTitle) {
+      title = sessionPrefix(sessionTitle) + title;
     }
 
     // 头像：助手自己的头像（跟原版通知一致），找不到回退插件图标
@@ -368,6 +652,7 @@ export default class TigexingPlugin {
       style: toastStyle === "plain" ? "plain" : "icon",
       icon: avatar || undefined,
       sound,
+      duration: cfg.toastDuration,
       log: this._log
     });
   }

@@ -150,10 +150,15 @@ test("setupExtraStyles 集成：临时 Hana 目录含插件+模板 → 注册齐
 
   // 注册后：getStyleIds 扩展排在最后（整活向之后）
   const ids = getStyleIds();
-  const base10 = ids.filter((id) => !id.startsWith("dh_") && id !== "userstyle");
-  assert.deepEqual(base10, ["default", "plain", "cheerful", "gentle", "sister", "epistle", "biz", "morse", "glitch", "mojibake"], "基础集顺序不变");
+  const base = ids.filter((id) => !id.startsWith("dh_") && id !== "userstyle");
+  assert.deepEqual(base, [
+    "default", "plain", "cheerful", "gentle", "sister", "epistle", "biz",
+    "ac_shizue", "ac_jack", "ac_jun", "ac_chacha", "ac_monica", "ac_judy", "ac_ankha", "ac_zucker", "ac_nook", "ac_timmy",
+    "morse", "glitch", "mojibake"
+  ], "基础集顺序不变（正常向 → 动森 → 整活向）");
   assert.deepEqual(ids, [
     "default", "plain", "cheerful", "gentle", "sister", "epistle", "biz",
+    "ac_shizue", "ac_jack", "ac_jun", "ac_chacha", "ac_monica", "ac_judy", "ac_ankha", "ac_zucker", "ac_nook", "ac_timmy",
     "morse", "glitch", "mojibake",
     "dh_dongbei", "dh_sichuan", "dh_wutunhua", "userstyle"
   ], "方言排列表最后（整活向之后）");

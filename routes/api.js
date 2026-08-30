@@ -22,7 +22,7 @@ import { sendToast } from "../lib/toast.js";
 import { listSounds, resolveSound, soundsDir } from "../lib/sounds.js";
 import { listAgentsFromDisk } from "../lib/agents.js";
 import { resolveAgentAvatar } from "../lib/agent-avatar.js";
-import { getStyle, getStyleIds } from "../lib/style.js";
+import { getStyle, getStyleIds, getStyleGroups } from "../lib/style.js";
 import { biaoqingbaoInstalled, resolveHanaHome } from "../lib/dialect-links.js";
 import { ModelConfig } from "../lib/model-config/index.js";
 import { listHanaTextModels } from "../lib/hana-models.js";
@@ -48,6 +48,16 @@ const PREVIEW_SAMPLES = {
   glitch: "这个接口报错了，我先查一下日志，可能是参数格式的问题，稍等哈",
   mojibake: "文件我收到了，内容有点问题，我重新处理一下再发给你哈",
   biz: "周末的安排我做了三版方案，第一版性价比最高，你看下要不要按这个来",
+  ac_shizue: "今日的安排我已记下，文件发你了，你先看看合不合适，有问题随时找我～",
+  ac_jack: "方案整理好了，发你了。",
+  ac_jun: "文档我改好了。哼，才不是特意帮你改的呢。",
+  ac_chacha: "今天的任务我都搞定啦！你也加油哇耶！",
+  ac_monica: "今天阳光超好～我把方案发你啦，看完记得喝口水呀！",
+  ac_judy: "哦呀，文件给你放桌上了，慢慢看，不急的～",
+  ac_ankha: "尼罗河畔的三千年……啊不是，方案整理好了，发你邮箱了，看看？",
+  ac_zucker: "嗯……没错，文件我收到了，慢慢看就好，不急的",
+  ac_nook: "你要的方案已到货，铃钱已结清，快来看看吧！",
+  ac_timmy: "豆狸：方案发你啦！粒狸：快去看！",
   dh_dongbei: "我寻思这个方案整体没毛病，就是流程有点绕，再捋捋就利索了，你看咋整",
   dh_henan: "中，就这么办，恁看还有啥要改嘞，俺再去弄",
   dh_shanghai: "我看了下，整体邪气好，就是第三段流程有点绕，数据校验提到前头要好点，侬讲伐",
@@ -160,6 +170,12 @@ export default function (app, ctx) {
     --warn-soft: #FBF3E4;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* 滚动条统一：细薄荷圆条（2026-08-26，与全部插件同一规范，横竖皆然） */
+  *::-webkit-scrollbar{width:8px;height:8px}
+  *::-webkit-scrollbar-track{background:transparent}
+  *::-webkit-scrollbar-thumb{background:#c9dfd3;border-radius:99px;border:2px solid var(--bg)}
+  *::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+  *{scrollbar-width:thin;scrollbar-color:#c9dfd3 transparent}
   body {
     background: var(--bg); color: var(--ink);
     font-family: "LXGW WenKai", "霞鹜文楷", "Kaiti SC", "KaiTi", "Microsoft YaHei", serif;
@@ -242,7 +258,7 @@ export default function (app, ctx) {
   .snd-folder-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .snd-head, .snd-row {
     display: grid;
-    grid-template-columns: minmax(60px, .8fr) minmax(104px, 1fr) minmax(96px, 1fr) minmax(132px, 1.2fr) minmax(76px, auto);
+    grid-template-columns: minmax(60px, .8fr) minmax(104px, 1fr) minmax(96px, 1fr) minmax(132px, 1.2fr) minmax(132px, auto);
     gap: 8px; align-items: center;
   }
   .snd-row {
@@ -256,7 +272,9 @@ export default function (app, ctx) {
     font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   }
   .snd-head .col-style, .snd-head .col-sound, .snd-head .col-trigger { min-width: 0; }
-  .snd-head .col-action { min-width: 76px; }
+  .snd-head .col-action { min-width: 132px; }
+  .snd-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .snd-actions .mini { width: auto; flex: 1; min-width: 0; }
   .snd-row .dd-trigger {
     min-height: 36px;
     padding: 7px 10px; font-size: 13.5px;
@@ -277,12 +295,41 @@ export default function (app, ctx) {
     .snd-row .dd[data-kind="style"] { grid-column: 1; }
     .snd-row .dd[data-kind="trigger"] { grid-column: 2; }
     .snd-row .dd[data-kind="sound"] { grid-column: 1 / -1; }
-    .snd-row .mini { grid-column: 1 / -1; justify-self: start; }
+    .snd-row .snd-actions { grid-column: 1 / -1; justify-self: start; width: 100%; }
+    .snd-row .snd-actions .mini { width: auto; }
   }
   .tip-line { font-size: 13.5px; color: var(--ink-soft); min-height: 20px; margin-top: 9px; font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; }
   .tip-ok { color: var(--accent-deep); font-weight: 600; }
   .tip-err { color: #C96A6A; font-weight: 600; }
   .empty { color: var(--ink-soft); font-size: 14px; text-align: center; padding: 15px 0; font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; }
+  .hidden-agents-box {
+    margin: 8px 0 12px; padding: 12px 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 13px;
+  }
+  .hidden-agents-title { font-size: 13.5px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+  .hidden-agent-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 2px; border-bottom: 1px dashed var(--line-soft); font-size: 14px;
+  }
+  .hidden-agent-row:last-child { border-bottom: none; }
+  .hidden-agent-row .hint { font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hide-name { font-weight: 600; color: var(--ink); min-width: 0; }
+  /* 手帐风勾选框：原生隐藏，自绘小方块 + 勾 */
+  .hide-check { position: relative; display: inline-flex; align-items: center; cursor: pointer; flex-shrink: 0; }
+  .hide-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .hide-check-box {
+    width: 17px; height: 17px; border-radius: 5px;
+    border: 1.5px solid var(--line); background: var(--card);
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: border-color .15s, background-color .15s;
+  }
+  .hide-check input:checked + .hide-check-box {
+    border-color: var(--accent); background: var(--accent-soft);
+  }
+  .hide-check input:checked + .hide-check-box::after {
+    content: "✓"; font-size: 12px; color: var(--accent-deep); font-weight: 700;
+  }
+  .hide-check input:focus-visible + .hide-check-box { box-shadow: 0 0 0 2px var(--dd-ring, rgba(93,174,142,.16)); }
   .footer { text-align: center; color: var(--ink-soft); font-size: 13px; margin-top: 6px; letter-spacing: 1.5px; }
   /* 全局保存反馈闪条 */
   .flash {
@@ -343,6 +390,17 @@ export default function (app, ctx) {
     </div>
 
     <div class="mode-block">
+      <div class="mode-name">断联提醒</div>
+      <div class="btn-row" style="justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-size:14px">回复异常中断时提醒</div>
+          <div class="hint">助手回复中途断掉（超时/报错/被意外终止）时弹一条通知。如果你装了带「一键继续」的解语花悬浮球，这里可以关掉，免得两边都弹。</div>
+        </div>
+        <button type="button" class="switch ${cfg.abnormalEnabled ? "on" : ""}" id="sw-abnormal" role="switch" aria-checked="${cfg.abnormalEnabled ? "true" : "false"}" aria-label="断联提醒"></button>
+      </div>
+    </div>
+
+    <div class="mode-block">
       <div class="mode-name">计划任务完成</div>
       <div class="btn-row" style="justify-content:space-between;margin-bottom:10px">
         <div>
@@ -397,8 +455,10 @@ export default function (app, ctx) {
     </div>
     <div class="btn-row" style="margin-bottom:4px">
       <button id="btn-refresh-sounds">刷新音效</button>
+      <button id="btn-manage-hidden">管理助手</button>
       <span class="hint" id="snd-tip"></span>
     </div>
+    <div id="hidden-list" style="display:none" class="hidden-agents-box"></div>
     <div id="snd-list"></div>
   </div>
 
@@ -628,6 +688,23 @@ ${feedbackUiJs}
       .catch(function () { flashTip("保存失败，看 Hana 日志", "err"); });
   });
 
+  // ── 断联提醒（回复异常中断）独立开关 ──
+  function setAbnormalEnabled(on) {
+    cfg.abnormalEnabled = !!on;
+    var sw = document.getElementById("sw-abnormal");
+    if (sw) {
+      sw.classList.toggle("on", cfg.abnormalEnabled);
+      sw.setAttribute("aria-checked", String(cfg.abnormalEnabled));
+    }
+  }
+  bind("sw-abnormal", "click", function () {
+    var next = !cfg.abnormalEnabled;
+    setAbnormalEnabled(next);
+    api("/api/config", { method: "POST", body: JSON.stringify({ abnormalEnabled: next }) })
+      .then(function () { flashTip("已保存 ✓", "ok"); })
+      .catch(function () { flashTip("保存失败，看 Hana 日志", "err"); });
+  });
+
   // ── 静默时段 ──
   bind("sw-quiet", "click", function () {
     cfg.quietHours.enabled = !cfg.quietHours.enabled;
@@ -683,11 +760,25 @@ ${feedbackUiJs}
   }
 
   function styleOptions(a) {
-    var opts = "";
+    // 按分组渲染 <optgroup>（beautify-select 面板里会变成手帐风组头 + 可收合）
+    var groups = {};
+    var order = [];
     for (var i = 0; i < sndData.styles.length; i++) {
       var st = sndData.styles[i];
-      var sel = styleVal(a) === st.id ? " selected" : "";
-      opts += '<option value="' + esc(st.id) + '"' + sel + ">" + esc(st.label) + "</option>";
+      var g = st.group || "normal";
+      if (!groups[g]) { groups[g] = { label: st.groupLabel || "其他", items: [] }; order.push(g); }
+      groups[g].items.push(st);
+    }
+    var opts = "";
+    for (var gi = 0; gi < order.length; gi++) {
+      var grp = groups[order[gi]];
+      opts += '<optgroup label="' + esc(grp.label) + '">';
+      for (var j = 0; j < grp.items.length; j++) {
+        var st2 = grp.items[j];
+        var sel = styleVal(a) === st2.id ? " selected" : "";
+        opts += '<option value="' + esc(st2.id) + '"' + sel + ">" + esc(st2.label) + "</option>";
+      }
+      opts += "</optgroup>";
     }
     return opts;
   }
@@ -711,7 +802,8 @@ ${feedbackUiJs}
           assignments: r.assignments || {},
           styleAssignments: r.styleAssignments || {},
           triggerAssignments: r.triggerAssignments || {},
-          styles: r.styles || []
+          styles: r.styles || [],
+          hiddenAgents: r.hiddenAgents || []
         };
         var dirIn = document.getElementById("in-snd-dir");
         if (dirIn) dirIn.value = r.customDir || "";
@@ -728,7 +820,7 @@ ${feedbackUiJs}
             '<select data-agent="' + esc(a.id) + '" data-kind="style">' + styleOptions(a) + "</select>" +
             '<select data-agent="' + esc(a.id) + '" data-kind="sound">' + sndOptions(a) + "</select>" +
             '<select data-agent="' + esc(a.id) + '" data-kind="trigger" title="聊天回复完成按这个档位提醒；跟随全局=用上面全局档位">' + triggerOptions(a) + "</select>" +
-            '<button class="mini" data-preview="' + esc(a.id) + '">看看效果</button></div>';
+            '<span class="snd-actions"><button class="mini" data-preview="' + esc(a.id) + '">看看效果</button></span></div>';
         }
         list.innerHTML = html;
         list.querySelectorAll("select").forEach(function (sel) { beautifySelect(sel); });
@@ -763,11 +855,69 @@ ${feedbackUiJs}
             }).catch(function () { showTip("snd-tip", "请求失败", 3000); });
           });
         });
+        // 隐藏助手：从列表移除（数据保留，恢复入口在「管理隐藏助手」）
+        // （v0.4.22 起隐藏管理收敛到「管理助手」弹层勾选，行内不再有隐藏按钮）
       })
       .catch(function (e) { showTip("snd-tip", "加载失败：" + e.message, 4000); });
   }
   bind("btn-refresh-sounds", "click", loadSounds);
   loadSounds();
+
+  // ── 管理助手：全量助手列表 + 勾选控制显示/隐藏（勾=显示，不勾=隐藏，数据一直保留） ──
+  bind("btn-manage-hidden", "click", function () {
+    var box = document.getElementById("hidden-list");
+    if (!box) return;
+    if (box.style.display !== "none") {
+      box.style.display = "none";
+      return;
+    }
+    // 全量读磁盘（含隐藏的），展示所有助手 + 勾选状态
+    api("/api/agents/all")
+      .then(function (r) {
+        var allAgents = (r.agents || []);
+        var hidden = (sndData.hiddenAgents || []);
+        var hiddenSet = {};
+        for (var i = 0; i < hidden.length; i++) hiddenSet[hidden[i]] = true;
+        if (!allAgents.length) {
+          box.innerHTML = '<div class="empty">没有找到助手</div>';
+          box.style.display = "block";
+          return;
+        }
+        var html = '<div class="hidden-agents-title">勾选 = 在列表显示；不勾 = 隐藏（数据保留）</div>';
+        for (var j = 0; j < allAgents.length; j++) {
+          var a = allAgents[j];
+          var checked = !hiddenSet[a.id];
+          html += '<div class="hidden-agent-row">' +
+            '<label class="hide-check"><input type="checkbox" data-visible="' + esc(a.id) + '"' + (checked ? " checked" : "") + ">" +
+            '<span class="hide-check-box"></span></label>' +
+            '<span class="hide-name">' + esc(a.name) + '</span>' +
+            '<span class="hint">' + esc(a.id) + "</span></div>";
+        }
+        box.innerHTML = html;
+        box.style.display = "block";
+        // 勾选变化 → 实时保存（勾上=显示=取消隐藏；不勾=隐藏）
+        box.querySelectorAll("[data-visible]").forEach(function (cb) {
+          cb.addEventListener("change", function () {
+            var id = cb.dataset.visible;
+            var visible = cb.checked;
+            api(visible ? "/api/agents/unhide" : "/api/agents/hide", {
+              method: "POST",
+              body: JSON.stringify({ agentId: id })
+            }).then(function (rr) {
+              if (rr && rr.ok) {
+                sndData.hiddenAgents = rr.hiddenAgents || [];
+                showTip("snd-tip", visible ? "已显示" : "已隐藏，数据保留", 1800);
+                loadSounds(); // 主列表同步
+              } else {
+                showTip("snd-tip", (rr && rr.error) || "保存失败", 3000);
+                cb.checked = !visible; // 回滚
+              }
+            }).catch(function () { showTip("snd-tip", "保存失败", 3000); cb.checked = !visible; });
+          });
+        });
+      })
+      .catch(function () { showTip("snd-tip", "加载失败", 3000); });
+  });
 
   // ── 自定义音效文件夹：保存后刷新音效列表（文件可能变了） ──
   bind("btn-save-snd-dir", "click", function () {
@@ -1073,8 +1223,16 @@ ${feedbackUiJs}
       dir: soundsDir(dataDir, cfg.soundDir),
       customDir: cfg.soundDir || "",
       files: listSounds(dataDir, cfg.soundDir),
-      agents: listAgentsFromDisk(path.join(HANA_HOME, "agents")),
-      styles: getStyleIds().map((id) => { const s = getStyle(id); return { id, label: s.label, desc: s.desc }; }),
+      // 列表按隐藏名单过滤（数据保留，只是不显示）；隐藏名单单独返回供「管理隐藏助手」恢复
+      agents: listAgentsFromDisk(path.join(HANA_HOME, "agents")).filter(
+        (a) => !(cfg.hiddenAgents || []).includes(a.id)
+      ),
+      hiddenAgents: cfg.hiddenAgents || [],
+      styles: getStyleIds().map((id) => {
+        const s = getStyle(id);
+        const grp = getStyleGroups().find((g) => g.id === (s.group || "normal"));
+        return { id, label: s.label, desc: s.desc, group: s.group || "normal", groupLabel: grp ? grp.label : "其他" };
+      }),
       assignments: cfg.agentSounds || {},
       styleAssignments: cfg.agentStyles || {},
       triggerAssignments: cfg.agentTriggers || {}
@@ -1167,6 +1325,46 @@ ${feedbackUiJs}
     }
     await configManager.patch({ agentTriggers: next });
     return c.json({ ok: true, assignments: configManager.get().agentTriggers || {} });
+  });
+
+  // 隐藏助手（列表不显示，数据保留）：写入 hiddenAgents 名单
+  // 与闲不住的「隐藏伙伴」同思路：只影响提个醒设置页列表，不删任何文件、不动其他插件
+  const AGENT_ID_RE = /^[a-zA-Z0-9._-]{1,100}$/;
+  function agentIdValid(id) {
+    return typeof id === "string" && AGENT_ID_RE.test(id);
+  }
+  function setHiddenAgents(agentId, hidden) {
+    const cfg = configManager.get();
+    let list = Array.isArray(cfg.hiddenAgents) ? [...cfg.hiddenAgents] : [];
+    if (hidden) {
+      if (!list.includes(agentId)) list.push(agentId);
+    } else {
+      list = list.filter((id) => id !== agentId);
+    }
+    return configManager.patch({ hiddenAgents: list });
+  }
+
+  app.post("/api/agents/hide", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const agentId = String(body.agentId || "").trim();
+    if (!agentIdValid(agentId)) return c.json({ ok: false, error: "invalid agentId" });
+    await setHiddenAgents(agentId, true);
+    const cfg = configManager.get();
+    return c.json({ ok: true, hiddenAgents: cfg.hiddenAgents || [] });
+  });
+
+  app.post("/api/agents/unhide", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const agentId = String(body.agentId || "").trim();
+    if (!agentIdValid(agentId)) return c.json({ ok: false, error: "invalid agentId" });
+    await setHiddenAgents(agentId, false);
+    const cfg = configManager.get();
+    return c.json({ ok: true, hiddenAgents: cfg.hiddenAgents || [] });
+  });
+
+  // 全量助手（含隐藏）：供「管理隐藏助手」显示名字用，不参与任何列表过滤
+  app.get("/api/agents/all", async (c) => {
+    return c.json({ ok: true, agents: listAgentsFromDisk(path.join(HANA_HOME, "agents")) });
   });
 
   app.post("/api/sounds/assign", async (c) => {

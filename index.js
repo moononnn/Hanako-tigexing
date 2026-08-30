@@ -309,8 +309,8 @@ export default class TigexingPlugin {
 
       const cfg = this._config.get();
       const chatTrigger = resolveChatTrigger(cfg, agentId);
-      if (!cfg.enabled || chatTrigger === "never") {
-        dbgLog(this._dataDir, `异常提醒拦截: enabled=${cfg.enabled} chatTrigger=${chatTrigger}`);
+      if (!cfg.enabled || !cfg.abnormalEnabled || chatTrigger === "never") {
+        dbgLog(this._dataDir, `异常提醒拦截: enabled=${cfg.enabled} abnormalEnabled=${cfg.abnormalEnabled} chatTrigger=${chatTrigger}`);
         return;
       }
       if (isInQuietHours(cfg)) {

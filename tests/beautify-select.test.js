@@ -76,10 +76,63 @@ test("自定义下拉：窄屏 grid 布局选择器已适配 .dd 容器（含提
 test("自定义下拉：441～620px 窄卡片也切成两列，避免试听按钮横向溢出", () => {
   assert.match(ROUTE, /@media \(max-width: 620px\)/);
   assert.match(ROUTE, /\.snd-row \{ grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\); \}/);
-  assert.match(ROUTE, /\.snd-row \.mini \{ grid-column: 1 \/ -1; justify-self: start; \}/);
+  // 操作区（看看效果 + 隐藏）整行放下，按钮不溢出
+  assert.match(ROUTE, /\.snd-row \.snd-actions \{ grid-column: 1 \/ -1; justify-self: start; width: 100%; \}/);
 });
 
 test("自定义下拉：风格 label 不带 emoji，窄栏能完整显示", () => {
   // 通知标题的 emoji 在 title 函数里硬编码，label 只用于设置页下拉
   assert.doesNotMatch(STYLE, /label: "[^\n]*\p{Extended_Pictographic}/u);
+});
+
+test("自定义下拉：支持 optgroup 二级分组（组头 + 收合）", () => {
+  // 组件渲染 optgroup 为可点击组头，展开后渲染组内 option
+  assert.match(DD_JS, /optgroup/);
+  assert.match(DD_JS, /dd-group-head/);
+  assert.match(DD_JS, /dd-group-body/);
+  assert.match(DD_JS, /data-group/);
+  assert.match(DD_JS, /collapsed/); // 收合状态记忆
+  // 面板渲染时遍历 sel.children，识别 optgroup
+  assert.match(DD_JS, /tagName\.toLowerCase\(\) === "optgroup"/);
+  // 组头点击收合/展开
+  assert.match(DD_JS, /\.dd-group-head/);
+  // 样式
+  assert.match(DD_CSS, /\.dd-group-head/);
+  assert.match(DD_CSS, /\.dd-group-caret/);
+  assert.match(DD_CSS, /\.dd-group-body/);
+});
+
+test("设置页：风格下拉按 optgroup 分组渲染", () => {
+  // styleOptions 生成 <optgroup>，组标签取 groupLabel
+  assert.match(ROUTE, /optgroup label=/);
+  assert.match(ROUTE, /st\.groupLabel/);
+  assert.match(ROUTE, /st\.group \|\| "normal"/);
+  // 后端 /api/sounds 返回 styles 带 group 与 groupLabel
+  assert.match(ROUTE, /group: s\.group \|\| "normal"/);
+  assert.match(ROUTE, /groupLabel/);
+});
+
+test("设置页：动森风格都有独立预览样例（不 fallback 到默认文案）", () => {
+  const acnhIds = ["ac_shizue", "ac_jack", "ac_jun", "ac_chacha", "ac_monica", "ac_judy", "ac_ankha", "ac_zucker", "ac_nook", "ac_timmy"];
+  for (const id of acnhIds) {
+    assert.match(ROUTE, new RegExp(id + ": "), id + " 有专属预览样例");
+  }
+});
+
+test("设置页：助手显示/隐藏收敛到「管理助手」勾选控制", () => {
+  // 管理助手弹层：全量助手 + 勾选框（勾=显示，不勾=隐藏）
+  assert.match(ROUTE, /btn-manage-hidden/);
+  assert.match(ROUTE, /data-visible/);
+  assert.match(ROUTE, /hide-check-box/);
+  // 行内不再有独立隐藏按钮（隐藏管理只用一次，收敛进弹层）
+  assert.doesNotMatch(ROUTE, /data-hide/);
+  // 隐藏接口 + 恢复接口 + 全量助手接口
+  assert.ok(ROUTE.includes("/api/agents/hide"), "有隐藏接口");
+  assert.ok(ROUTE.includes("/api/agents/unhide"), "有恢复接口");
+  assert.ok(ROUTE.includes("/api/agents/all"), "有全量助手接口");
+  // 勾选变化实时保存：勾上=unhide，不勾=hide
+  assert.match(ROUTE, /visible \? "\/api\/agents\/unhide" : "\/api\/agents\/hide"/);
+  // /api/sounds 按隐藏名单过滤 agents，并返回 hiddenAgents
+  assert.match(ROUTE, /\.filter\(/);
+  assert.match(ROUTE, /hiddenAgents: cfg\.hiddenAgents/);
 });

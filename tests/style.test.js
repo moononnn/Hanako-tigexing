@@ -4,17 +4,85 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { STYLES, STYLE_IDS, getStyle, getStyleIds, getAllStyles, registerStyle } from "../lib/style.js";
+import { STYLES, STYLE_IDS, getStyle, getStyleIds, getAllStyles, getStyleGroups, registerStyle } from "../lib/style.js";
 
-test("风格：十套风格齐全", () => {
-  assert.deepEqual([...STYLE_IDS].sort(), ["biz", "cheerful", "default", "epistle", "gentle", "glitch", "mojibake", "morse", "plain", "sister"].sort());
+const ACNH_IDS = ["ac_shizue", "ac_jack", "ac_jun", "ac_chacha", "ac_monica", "ac_judy", "ac_ankha", "ac_zucker", "ac_nook", "ac_timmy"];
+
+test("风格：风格集齐全（含动森十套）", () => {
+  assert.deepEqual([...STYLE_IDS].sort(), ["biz", "cheerful", "default", "epistle", "gentle", "glitch", "mojibake", "morse", "plain", "sister", ...ACNH_IDS].sort());
 });
 
-test("风格：正常向在前，整活向在后（列表展示顺序）", () => {
+test("动森风格：十套齐全，注册在整活向之前", () => {
+  const ids = getStyleIds();
+  for (const id of ACNH_IDS) assert.ok(ids.includes(id), id + " 已注册");
+  const mojibakeIdx = ids.indexOf("mojibake");
+  for (const id of ACNH_IDS) assert.ok(ids.indexOf(id) < mojibakeIdx, id + " 排在整活向之前");
+  assert.deepEqual(getAllStyles().filter((s) => s.group === "acnh").map((s) => s.id), ACNH_IDS);
+});
+
+test("动森风格：口癖在标题，正文尽量留原话（交叉审查后）", () => {
+  // 西施惠：晨间播报腔，半正式措辞，正文带 ♪
+  const shizue = getStyle("ac_shizue");
+  assert.equal(shizue.title("first", "小花", 1), "📢 今日播报 · 小花 有消息来啦");
+  assert.equal(shizue.title("append", "小花", 3), "📢 本台消息 · 小花 又回 2 条");
+  assert.equal(shizue.body("first", "方案发你了", 1), "方案发你了 ♪");
+  // 杰克：惜字如金，正文零词缀（纯原话）
+  const jack = getStyle("ac_jack");
+  assert.equal(jack.title("first", "小花", 1), "小花 回你了。");
+  assert.equal(jack.body("first", "方案发你了", 1), "方案发你了");
+  // 小润：标题「哼」开头，正文纯原话（与润色 prompt 统一）
+  const jun = getStyle("ac_jun");
+  assert.equal(jun.title("first", "小花", 1), "哼，小花 回你了。");
+  assert.equal(jun.title("append", "小花", 3), "哼，小花 又回 2 条。");
+  assert.equal(jun.body("first", "文档改好了", 1), "文档改好了");
+  // 茶茶丸：标题带「哇耶」，正文纯原话（去重）
+  const chacha = getStyle("ac_chacha");
+  assert.equal(chacha.title("first", "小花", 1), "哇耶！小花 回你啦！");
+  assert.equal(chacha.body("first", "搞定啦", 1), "搞定啦");
+  // 莫妮卡：标题带「呀哈」，正文纯原话（保留官方口癖）
+  const monica = getStyle("ac_monica");
+  assert.equal(monica.title("first", "小花", 1), "呀哈！小花 回你啦～");
+  assert.equal(monica.body("first", "方案发你了", 1), "方案发你了");
+  // 美玲：标题「哦呀」开头，正文纯原话
+  const judy = getStyle("ac_judy");
+  assert.equal(judy.title("first", "小花", 1), "哦呀，小花 给你留了句话");
+  assert.equal(judy.title("append", "小花", 2), "哦呀，小花 又留了 1 条话");
+  assert.equal(judy.body("first", "记得喝水", 1), "记得喝水");
+  // 艳后：句尾缀「尼罗哟」（软化）
+  const ankha = getStyle("ac_ankha");
+  assert.equal(ankha.title("first", "小花", 1), "尼罗河畔有信 · 小花 回你了");
+  assert.equal(ankha.body("first", "方案发你了", 1), "方案发你了…尼罗哟。");
+  // 章丸丸：简中口癖「没错」（不是繁体「认同」）
+  const zucker = getStyle("ac_zucker");
+  assert.equal(zucker.title("first", "小花", 1), "嗯…没错，小花 回你了");
+  assert.equal(zucker.body("first", "文件收到了", 1), "文件收到了…没错。");
+  // 狸克：标题带铃钱梗（已结清），正文纯原话
+  const nook = getStyle("ac_nook");
+  assert.equal(nook.title("first", "小花", 1), "🏪 本店通知 · 小花 的货到了（铃钱已结清）");
+  assert.equal(nook.title("append", "小花", 3), "🏪 本店补货 · 小花 又上 2 件（铃钱已结清）");
+  assert.equal(nook.body("first", "方案发你了", 1), "方案发你了");
+  // 豆狸粒狸：双人接龙，正文纯原话（去掉句尾「光临」）
+  const timmy = getStyle("ac_timmy");
+  assert.equal(timmy.title("first", "小花", 1), "豆狸：小花 回你啦！粒狸：快去看！");
+  assert.equal(timmy.title("append", "小花", 3), "豆狸：小花 又回 2 条！粒狸：别错过！");
+  assert.equal(timmy.body("first", "方案发你了", 1), "方案发你了");
+});
+
+test("风格：分组字段齐全，组顺序符合展示顺序", () => {
+  const groups = getStyleGroups();
+  assert.deepEqual(groups.map((g) => g.id), ["normal", "acnh", "fun"]);
+  for (const g of groups) assert.ok(g.label && g.desc, g.id + " 组文案");
+  // 每个基础风格都有 group
+  for (const id of getStyleIds()) assert.ok(getStyle(id).group, id + " 有 group");
+});
+
+test("风格：正常向在前，动森次之，整活向在后（列表展示顺序）", () => {
   // 正常向：default / plain / cheerful / gentle / sister / epistle / biz（可润色为主）
+  // 动森：acnh 组（10 套，接在正常向之后、整活向之前）
   // 整活向：morse / glitch / mojibake（格式玩法）
   assert.deepEqual(STYLE_IDS, [
     "default", "plain", "cheerful", "gentle", "sister", "epistle", "biz",
+    ...ACNH_IDS,
     "morse", "glitch", "mojibake"
   ]);
 });
@@ -204,7 +272,7 @@ test("风格：扩展注册排在列表最后，重复注册幂等", () => {
   const ids = getStyleIds();
   assert.deepEqual(
     ids.filter((id) => !id.startsWith("dh_")),
-    ["default", "plain", "cheerful", "gentle", "sister", "epistle", "biz", "morse", "glitch", "mojibake"]
+    ["default", "plain", "cheerful", "gentle", "sister", "epistle", "biz", ...ACNH_IDS, "morse", "glitch", "mojibake"]
   );
   assert.ok(ids.includes("dh_test"));
   const mojibakeIdx = ids.indexOf("mojibake"), extIdx = ids.indexOf("dh_test");

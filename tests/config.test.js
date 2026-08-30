@@ -25,6 +25,7 @@ test("normalizeConfig：默认值齐全，非法输入回退默认", () => {
   assert.equal(normalizeConfig(null).toastDuration, "default");
   assert.equal(normalizeConfig(null).scheduledTakeover, true);
   assert.equal(normalizeConfig(undefined).enabled, true);
+  assert.equal(normalizeConfig(null).abnormalEnabled, true);
   assert.equal(normalizeConfig("字符串").chatTrigger, DEFAULT_CONFIG.chatTrigger);
   const ok = normalizeConfig({ enabled: false, refineEnabled: true, chatTrigger: "always", scheduledTakeover: false });
   assert.equal(ok.enabled, false);
@@ -34,6 +35,12 @@ test("normalizeConfig：默认值齐全，非法输入回退默认", () => {
   assert.equal(normalizeConfig({ toastDuration: "long" }).toastDuration, "long");
   assert.equal(normalizeConfig({ toastDuration: "short" }).toastDuration, "default");
   assert.equal(normalizeConfig({ toastDuration: 25 }).toastDuration, "default");
+});
+
+test("normalizeConfig：abnormalEnabled 独立开关只收布尔，非法输入回默认 true", () => {
+  assert.equal(normalizeConfig({ abnormalEnabled: false }).abnormalEnabled, false);
+  assert.equal(normalizeConfig({ abnormalEnabled: "no" }).abnormalEnabled, true);
+  assert.equal(normalizeConfig({ abnormalEnabled: 0 }).abnormalEnabled, true);
 });
 
 test("normalizeConfig：soundDir 只收绝对路径，相对/超长/非字符串回默认", () => {
@@ -159,4 +166,28 @@ test("normalizeConfig：agentTriggers 只收聊天档位白名单，其余助手
   // 任务档位（whenUnfocused 之外的 scheduled 专属值）不在聊天白名单
   const sched = normalizeConfig({ agentTriggers: { xiansheng: "always" } });
   assert.equal(sched.agentTriggers.xiansheng, "always");
+});
+
+test("normalizeConfig：hiddenAgents 只收安全字符集的 id 数组，去重", () => {
+  // 默认空数组
+  assert.deepEqual(normalizeConfig(null).hiddenAgents, [], "默认无隐藏助手");
+
+  // 合法 id 保留
+  const ok = normalizeConfig({ hiddenAgents: ["hanabrew-visitor-192c98fb3fcf", "hanako"] });
+  assert.deepEqual(ok.hiddenAgents, ["hanabrew-visitor-192c98fb3fcf", "hanako"]);
+
+  // 非法字符 / 超长 / 非字符串被过滤（数字字符串合法，会保留）
+  const bad = normalizeConfig({ hiddenAgents: ["../evil", "a b", "x".repeat(200), null, ""] });
+  assert.deepEqual(bad.hiddenAgents, [], "非法 id 全部过滤");
+  // 数字字符串：安全字符集内，保留
+  const num = normalizeConfig({ hiddenAgents: [123] });
+  assert.deepEqual(num.hiddenAgents, ["123"], "数字字符串合法保留");
+
+  // 去重
+  const dup = normalizeConfig({ hiddenAgents: ["hanako", "hanako", "hanako"] });
+  assert.deepEqual(dup.hiddenAgents, ["hanako"], "重复 id 只留一个");
+
+  // 非数组输入忽略
+  const notArr = normalizeConfig({ hiddenAgents: "hanako" });
+  assert.deepEqual(notArr.hiddenAgents, [], "非数组忽略");
 });

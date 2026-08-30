@@ -38,9 +38,23 @@
 .dd-check { width: 15px; flex-shrink: 0; color: var(--accent-deep); font-size: 12px; visibility: hidden; }
 .dd-opt.on .dd-check { visibility: visible; }
 .dd-opt-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.dd-panel::-webkit-scrollbar { width: 7px; }
-.dd-panel::-webkit-scrollbar-thumb { background: var(--dd-thumb, rgba(93,174,142,.32)); border-radius: 999px; }
-.dd-panel::-webkit-scrollbar-thumb:hover { background: var(--dd-thumb-hover, rgba(93,174,142,.55)); }
+/* 分组（<optgroup>）渲染：组头手帐风分隔条，可点击收合 */
+.dd-group { margin: 2px 0; }
+.dd-group-head {
+  width: 100%; display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px 5px; margin: 2px 0 3px;
+  border: 0; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  color: var(--ink-soft); letter-spacing: .03em; text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.dd-group-head:hover { color: var(--accent-deep); }
+.dd-group-caret { width: 12px; flex-shrink: 0; color: var(--accent-deep); font-size: 10px; transition: transform .15s; }
+.dd-group-body { padding: 1px 0; }
+.dd-panel::-webkit-scrollbar { width: 8px; height: 8px; }
 .dd-panel::-webkit-scrollbar-track { background: transparent; }
+.dd-panel::-webkit-scrollbar-thumb { background: var(--dd-thumb, #c9dfd3); border-radius: 99px; border: 2px solid var(--card); }
+.dd-panel::-webkit-scrollbar-thumb:hover { background: var(--dd-thumb-hover, #5dae8e); }
+.dd-panel { scrollbar-width: thin; scrollbar-color: var(--dd-thumb, #c9dfd3) transparent; }
 /* 面板溢出容器时提升该容器层级（组件 JS 展开时自动加类，收起时移除），防止下层内容穿模 */
 .dd-open-card { position: relative; z-index: 30; }

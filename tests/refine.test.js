@@ -4,13 +4,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRefineMessages, parseRefineResult, parseRefineResultLenient, refineTitleAndBody } from "../lib/refine.js";
+import { buildRefineMessages, parseRefineResult, parseRefineResultLenient, refineTitleAndBody, isRefusalText } from "../lib/refine.js";
 import { STYLES, sessionPrefix } from "../lib/style.js";
 
 const style = (id) => STYLES[id];
 
 test("refinable：语气型风格参与润色，格式型整活风格不参与", () => {
-  for (const id of ["default", "plain", "cheerful", "gentle", "biz"]) {
+  for (const id of ["default", "plain", "cheerful", "gentle", "biz", "sister", "epistle",
+    "ac_shizue", "ac_jack", "ac_jun", "ac_chacha", "ac_monica", "ac_judy", "ac_ankha", "ac_zucker", "ac_nook", "ac_timmy"]) {
     assert.equal(STYLES[id].refinable, true, id + " 应可润色");
   }
   for (const id of ["morse", "glitch", "mojibake"]) {
@@ -138,4 +139,60 @@ test("parseRefineResultLenient：Markdown 代码块围栏可剥离", () => {
 test("parseRefineResultLenient：前后有解释文字也能抠出 JSON", () => {
   const r = parseRefineResultLenient('好的，我来改写：\n{"title":"小花 回你啦！","body":"搞定～"}\n希望你喜欢！');
   assert.equal(r.title, "小花 回你啦！");
+});
+
+// ── 安全拒绝文案识别（2026-08-28 实机：MiniMax-M3 把科普当成越权请求，输出拒绝文案被当正常结果弹窗）──
+
+test("isRefusalText：识别常见安全拒绝文案", () => {
+  assert.equal(isRefusalText("抱歉，这个话题我不能帮你～"), true, "实机原文");
+  assert.equal(isRefusalText("抱歉，我无法生成通知文案"), true);
+  assert.equal(isRefusalText("我不能帮你完成这个请求"), true);
+  assert.equal(isRefusalText("拒绝回答这个问题"), true);
+  assert.equal(isRefusalText("换个话题吧"), true);
+  assert.equal(isRefusalText("这违反了安全政策"), true);
+});
+
+test("isRefusalText：正常文案不误伤", () => {
+  assert.equal(isRefusalText("「刚才说的事，有着落啦～」"), false);
+  assert.equal(isRefusalText("已经删好啦，页面清爽多了"), false);
+  assert.equal(isRefusalText("身体不舒服就早点休息"), false);
+  assert.equal(isRefusalText("这个方法能帮到你"), false);
+  assert.equal(isRefusalText("他说抱歉来晚了，但事办妥了"), false, "引语里带抱歉但不是拒绝");
+  assert.equal(isRefusalText("别担心，我来帮你处理"), false);
+});
+
+test("parseRefineResult：模型输出安全拒绝文案时抛错（降级规则版）", () => {
+  assert.throws(() => parseRefineResult('{"title":"小花回你啦～","body":"抱歉，这个话题我不能帮你～"}'));
+  assert.throws(() => parseRefineResult('{"title":"抱歉，我无法完成这个请求","body":"请换个话题"}'));
+});
+
+test("refineTitleAndBody：第一次输出拒绝文案，重试后成功", async () => {
+  let calls = 0;
+  const mc = {
+    sample: async () => {
+      calls += 1;
+      if (calls === 1) return '{"title":"小花回你啦～","body":"抱歉，这个话题我不能帮你～"}';
+      return '{"title":"小花 回你啦！","body":"搞定啦～"}';
+    }
+  };
+  const r = await refineTitleAndBody({
+    mc, agentName: "小花", style: style("gentle"), kind: "first", snippet: "x", count: 1, sessionPrefix
+  });
+  assert.equal(calls, 2, "拒绝文案应触发重试");
+  assert.equal(r.title, "小花 回你啦！");
+  assert.equal(r.body, "搞定啦～");
+});
+
+test("refineTitleAndBody：两次都输出拒绝文案则抛错（调用方降级规则版）", async () => {
+  let calls = 0;
+  const mc = {
+    sample: async () => {
+      calls += 1;
+      return '{"title":"小花回你啦～","body":"抱歉，这个话题我不能帮你～"}';
+    }
+  };
+  await assert.rejects(refineTitleAndBody({
+    mc, agentName: "小花", style: style("gentle"), kind: "first", snippet: "x", count: 1, sessionPrefix
+  }));
+  assert.equal(calls, 2, "两次都拒绝应抛错让调用方降级");
 });

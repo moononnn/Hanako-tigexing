@@ -6,6 +6,8 @@ import { homedir } from "node:os";
 
 import { sendToast } from "../lib/toast.js";
 
+const HANA_HOME = process.env.HANA_HOME || path.join(process.env["HOME"] || process.env["USERPROFILE"] || homedir(), ".hanako");
+
 export const name = "test_notify";
 export const description = "弹一条「提个醒」测试通知到桌面，验证通知链路是否正常。";
 export const sessionPermission = { readOnly: true };
@@ -17,9 +19,12 @@ export const parameters = {
   }
 };
 
+export function resolvePluginDir(ctx = {}) {
+  return ctx.pluginDir || path.join(HANA_HOME, "plugins", ctx.pluginId);
+}
+
 export async function execute(input = {}, ctx) {
-  const userHome = process.env["HOME"] || process.env["USERPROFILE"] || homedir();
-  const pluginDir = path.join(userHome, ".hanako", "plugins", ctx.pluginId);
+  const pluginDir = resolvePluginDir(ctx);
 
   const title = input.title || "提个醒 · 测试通知";
   const message = input.message || "弹窗链路正常！回复完成时，就会这样提醒你。";

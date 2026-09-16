@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "tigexing",
   "name": "提个醒",
-  "version": "0.4.29",
+  "version": "0.4.31",
   "description": "替小花记住发弹窗的小喇叭。回复完成自动弹 Windows 通知，同窗口多条合并、跨窗口分开提醒，带静默时段和按助手个性化的音效与通知风格。",
   "trust": "full-access",
   "activationEvents": [

@@ -28,7 +28,8 @@ node --test lib/model-config/tests/*.test.js
 | tests/style.test.js | 八套通知风格（默认/简洁高效/活泼可爱/温柔贴心/摩斯电码/系统故障/锟斤拷/大厂黑话）的标题与正文格式（含会话标题前缀与截断）、未知风格回退、样式完整性 |
 | tests/refine.test.js | 文案润色：refinable 标记、prompt 构建（风格指令/条数提示/snippet 裁剪）、JSON 解析与超长裁剪、模型失败抛错、成功拼会话前缀 |
 | tests/session-title.test.js | 会话标题读取：sessionId/完整路径/文件名三种 key 匹配、路径分隔符归一化、损坏文件回退 |
-| tests/event-parse.test.js | turn_end / activity_update / provider error / auto retry / session abort 解析（最终回合判定 / mood 清洗 / 文本提取 / 活动 sessionFile） |
+| tests/event-parse.test.js | turn_end / activity_update / provider error / auto retry / session abort / session_background_task 解析（最终回合判定 / mood 清洗 / 文本提取 / 活动 sessionFile / 子 agent 任务状态） |
+| tests/background-tasks.test.js | 子 agent 后台任务门：多任务计数、全部收齐解除阻塞、不同对话框隔离 |
 | tests/abnormal-copy.test.js | 异常回合文案归纳、部分回复内容保留、主动取消过滤、会话不健康提示 |
 | tests/abnormal-state.test.js | 自动重试开始/成功/耗尽、失败兜底宽限期、正常回合清除、会话级去重 |
 | tests/activity-notify.test.js | 计划任务通知去重：路径分隔符兼容、空路径保护、TTL 清理、活动路径键 |

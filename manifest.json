@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "tigexing",
   "name": "提个醒",
-  "version": "0.4.23",
+  "version": "0.4.29",
   "description": "替小花记住发弹窗的小喇叭。回复完成自动弹 Windows 通知，同窗口多条合并、跨窗口分开提醒，带静默时段和按助手个性化的音效与通知风格。",
   "trust": "full-access",
   "activationEvents": [
@@ -19,7 +19,25 @@
   ],
   "network": {
     "allowedHosts": [
-      "*"
+      "127.0.0.1",
+      "localhost",
+      "api.commandcode.ai",
+      "api.deepseek.com",
+      "api.longcat.chat",
+      "api.minimaxi.com",
+      "api.moonshot.cn",
+      "api.siliconflow.cn",
+      "api.stepfun.com",
+      "api.xiaomimimo.com",
+      "apihub.agnes-ai.com",
+      "ark.cn-beijing.volces.com",
+      "chatgpt.com",
+      "cli-chat-proxy.grok.com",
+      "generativelanguage.googleapis.com",
+      "note3-prev-api.askdiandian.com",
+      "open.bigmodel.cn",
+      "opencode.ai",
+      "token.sensenova.cn"
     ],
     "methods": [
       "GET",

@@ -23,6 +23,7 @@ import { listSounds, resolveSound, soundsDir } from "../lib/sounds.js";
 import { listAgentsFromDisk } from "../lib/agents.js";
 import { resolveAgentAvatar } from "../lib/agent-avatar.js";
 import { getStyle, getStyleIds, getStyleGroups } from "../lib/style.js";
+import { validateExternalNotify, planExternalNotify } from "../lib/external-notify.js";
 import { biaoqingbaoInstalled, resolveHanaHome } from "../lib/dialect-links.js";
 import { ModelConfig } from "../lib/model-config/index.js";
 import { listHanaTextModels } from "../lib/hana-models.js";
@@ -1413,5 +1414,49 @@ ${feedbackUiJs}
       log
     });
     return c.json({ ok: true, sent });
+  });
+
+  // ============================================================
+  // 对外弹窗接口（供其他插件调用，如模型自动降级提醒）
+  // POST /api/plugins/tigexing/api/external/notify
+  // 复用提个醒现有配置：总开关、静默时段、按助手音效/头像、通知时长、视觉样式；
+  // 不弹时返回 suppressed + reason，让调用方知道被静默了。
+  // 决策逻辑在 lib/external-notify.js（纯函数，可单测），这里只做薄封装。
+  // 鉴权：所有插件 API 都经 Hana 主 API 的 loopback token 代理，未授权进不来。
+  // ============================================================
+  app.post("/api/external/notify", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const v = validateExternalNotify(body);
+    if (!v.ok) return c.json({ ok: false, error: v.error }, 400);
+
+    const cfg = configManager.get();
+    const plan = planExternalNotify(
+      {
+        title: v.title,
+        message: v.message,
+        agentId: body.agentId,
+        style: body.style,
+        sound: body.sound,
+        duration: body.duration
+      },
+      cfg,
+      {
+        resolveSoundFile: (f) => resolveSound(dataDir, f, cfg.soundDir),
+        resolveAgentAvatar: (agentId) => resolveAgentAvatar(path.join(HANA_HOME, "agents"), agentId)
+      }
+    );
+
+    if (plan.action === "suppressed") {
+      return c.json({ ok: true, sent: false, suppressed: true, reason: plan.reason });
+    }
+
+    const sent = sendToast({ pluginDir, ...plan.toast, log });
+    return c.json({
+      ok: true,
+      sent,
+      suppressed: false,
+      style: plan.meta.style,
+      quietHours: cfg.quietHours
+    });
   });
 }

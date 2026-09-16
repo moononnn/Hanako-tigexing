@@ -17,6 +17,7 @@ node --check tools/test-notify.js
 # 单元测试（零依赖，node:test）
 node --test tests/*.test.js
 node --test lib/update-checker/tests/update-checker.test.js lib/feedback/tests/feedback.test.js
+node --test lib/model-config/tests/*.test.js
 ```
 
 ## 覆盖范围
@@ -37,7 +38,9 @@ node --test lib/update-checker/tests/update-checker.test.js lib/feedback/tests/f
 | tests/support-entry.test.js | 检查更新 / 反馈积木的页面落点、路由注册、Response 凭证适配、全新纯色圆角弹窗外壳、未配置仓库降级 |
 | tests/toast-duration.test.js | 系统通知时长设置页、Node → PowerShell 环境变量、WinRT toast duration 属性接线 |
 | lib/update-checker/tests/update-checker.test.js | 版本比较、GitHub release 响应、缓存与网络异常降级 |
-| lib/feedback/tests/feedback.test.js | 环境信息、反馈多轮会话、单条消息长度限制、issue 草稿解析、预填页、模型失败降级 |
+| lib/feedback/tests/feedback.test.js | 环境信息、反馈多轮会话、单条消息长度限制、issue 草稿解析、预填页、模型失败降级 | 
+| lib/model-config/tests/model-config.test.js | 三档模型配置、凭据保护、Hana 指定模型直连、自定义 API、响应解析与配置迁移 | 
+| lib/model-config/tests/retry-budget.test.js | 思考型模型空正文重试预算与诊断 |
 
 > 注：v0.2.0 删「通知历史」（页面/API/存储全移除）；v0.3.0 删「重要关键词」功能（策略/配置/页面全移除）。检查更新仓库通过 `TIGEXING_GITHUB_REPO` 注入；未配置时页面明确提示，不伪造地址。
 

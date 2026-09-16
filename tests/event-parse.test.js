@@ -11,6 +11,7 @@ import {
   parseAutoRetryEnd,
   parseSessionUnhealthyWarning,
   parseActivityUpdate,
+  parseSessionBackgroundTask,
   sessionIdFromPath,
   agentIdFromSessionPath,
   extractAssistantText,
@@ -22,6 +23,26 @@ test("非 turn_end 事件返回 null", () => {
   assert.equal(parseTurnEnd({ type: "turn_start", agentId: "hanako" }, null), null);
   assert.equal(parseTurnEnd(null, null), null);
   assert.equal(parseTurnEnd("str", null), null);
+});
+
+// ── session_background_task（子 agent 完成门） ──
+
+test("session_background_task：解析开始/结束及会话路径", () => {
+  const sp = "C:/Users/x/.hanako/agents/hanako/sessions/main.jsonl";
+  assert.deepEqual(parseSessionBackgroundTask({
+    type: "session_background_task",
+    action: "upsert",
+    taskId: "child-a",
+    sessionId: "logical-main"
+  }, sp), { action: "upsert", taskId: "child-a", sessionId: "main", sessionPath: sp, status: "" });
+  assert.deepEqual(parseSessionBackgroundTask({
+    type: "session_background_task",
+    action: "remove",
+    taskId: "child-a",
+    sessionPath: sp
+  }, null), { action: "remove", taskId: "child-a", sessionId: "main", sessionPath: sp, status: "" });
+  assert.equal(parseSessionBackgroundTask({ type: "session_background_task", action: "upsert" }, sp), null);
+  assert.equal(parseSessionBackgroundTask({ type: "turn_end", action: "remove", taskId: "x" }, sp), null);
 });
 
 // ── activity_update（计划任务/巡检完成） ──

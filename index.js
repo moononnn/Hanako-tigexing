@@ -26,6 +26,7 @@ import {
   parseAutoRetryEnd,
   parseSessionUnhealthyWarning,
   parseActivityUpdate,
+  parseSessionBackgroundTask,
   sessionIdFromPath,
   agentIdFromSessionPath,
   isFinalTurn,
@@ -43,6 +44,7 @@ import { setupExtraStyles } from "./lib/dialect-links.js";
 import { AbnormalTurnTracker, ABNORMAL_FAILURE_GRACE_MS } from "./lib/abnormal-state.js";
 import { buildAbnormalCopy, isRetryCancelled } from "./lib/abnormal-copy.js";
 import { TurnTrace } from "./lib/turn-trace.js";
+import { BackgroundTaskTracker } from "./lib/background-tasks.js";
 
 const HANA_HOME = process.env.HANA_HOME || path.join(os.homedir(), ".hanako");
 // 「当前窗口」判定阈值：该会话最近 X 毫秒内有用户消息 → 认为是正在看的窗口
@@ -72,6 +74,7 @@ export default class TigexingPlugin {
     this._agentNames = {};
     this._lastUserMsgAt = new Map(); // sessionId -> ts（最近一次用户消息）
     this._timers = new Map();
+    this._backgroundTasks = new BackgroundTaskTracker();
     this._activityNotifications = new ActivityNotificationTracker();
     this._abnormal = new AbnormalTurnTracker({
       graceMs: ABNORMAL_TURN_GRACE_MS,
@@ -124,6 +127,14 @@ export default class TigexingPlugin {
             if (this._activityNotifications.mark(notificationPath)) {
               dbgLog(this._dataDir, `已记录宿主活动通知: ${notificationPath}`);
             }
+            return;
+          }
+          // 0) 后台任务（如子 agent）只算中间过程；任务全部收齐前不发聊天完成提醒。
+          const backgroundTask = parseSessionBackgroundTask(event, scopedSessionPath);
+          if (backgroundTask) {
+            this._backgroundTasks.update(backgroundTask);
+            const taskDone = backgroundTask.action === "remove" || ["completed", "failed", "canceled", "aborted"].includes(backgroundTask.status.toLowerCase());
+            dbgLog(this._dataDir, `后台任务${taskDone ? "结束" : "开始"}: sessionId=${backgroundTask.sessionId} taskId=${backgroundTask.taskId} status=${backgroundTask.status || "未知"} remaining=${this._backgroundTasks.count(backgroundTask.sessionId)}`);
             return;
           }
           // 1) 用户消息：记下会话的最后活跃时间，开启新的异常提醒周期，并标记活跃回合（进程被杀时重启补弹用）。
@@ -225,6 +236,7 @@ export default class TigexingPlugin {
       clearTimeout(t);
       this._timers.delete(sid);
     }
+    this._backgroundTasks?.clear();
     this._abnormal?.dispose();
     // 正常退出：清空活跃回合追踪，重启后不补弹（用户知道自己关了 Hana）。
     this._turnTrace?.markCleanShutdown();
@@ -503,6 +515,10 @@ export default class TigexingPlugin {
       // turn_end，但该会话从未有过 session_user_message（用户消息事件），弹了反而打扰（2026-08-17 反馈）
       if (!this._lastUserMsgAt.has(sessionId)) {
         dbgLog(this._dataDir, `无用户消息的会话跳过（后台调度）: sessionId=${sessionId}`);
+        return;
+      }
+      if (this._backgroundTasks.has(sessionId)) {
+        dbgLog(this._dataDir, `对话框仍有后台任务，完成回合暂不提醒: sessionId=${sessionId} remaining=${this._backgroundTasks.count(sessionId)}`);
         return;
       }
 

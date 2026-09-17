@@ -17,7 +17,6 @@ node --check tools/test-notify.js
 # 单元测试（零依赖，node:test）
 node --test tests/*.test.js
 node --test lib/update-checker/tests/update-checker.test.js lib/feedback/tests/feedback.test.js
-node --test lib/model-config/tests/*.test.js
 ```
 
 ## 覆盖范围
@@ -28,8 +27,9 @@ node --test lib/model-config/tests/*.test.js
 | tests/style.test.js | 八套通知风格（默认/简洁高效/活泼可爱/温柔贴心/摩斯电码/系统故障/锟斤拷/大厂黑话）的标题与正文格式（含会话标题前缀与截断）、未知风格回退、样式完整性 |
 | tests/refine.test.js | 文案润色：refinable 标记、prompt 构建（风格指令/条数提示/snippet 裁剪）、JSON 解析与超长裁剪、模型失败抛错、成功拼会话前缀 |
 | tests/session-title.test.js | 会话标题读取：sessionId/完整路径/文件名三种 key 匹配、路径分隔符归一化、损坏文件回退 |
-| tests/event-parse.test.js | turn_end / activity_update / provider error / auto retry / session abort / session_background_task 解析（最终回合判定 / mood 清洗 / 文本提取 / 活动 sessionFile / 子 agent 任务状态） |
+| tests/event-parse.test.js | turn_end / activity_update / provider error / auto retry / session abort / session_background_task 解析（最终回合与工具中间回合判定 / 异常过滤 / mood 清洗 / 文本提取 / 活动 sessionFile / 子 agent 任务状态） |
 | tests/background-tasks.test.js | 子 agent 后台任务门：多任务计数、全部收齐解除阻塞、不同对话框隔离 |
+| tests/debug-log.test.js | 高频事件过滤、关键事件保留、日志大小上限与最近记录截断 |
 | tests/abnormal-copy.test.js | 异常回合文案归纳、部分回复内容保留、主动取消过滤、会话不健康提示 |
 | tests/abnormal-state.test.js | 自动重试开始/成功/耗尽、失败兜底宽限期、正常回合清除、会话级去重 |
 | tests/activity-notify.test.js | 计划任务通知去重：路径分隔符兼容、空路径保护、TTL 清理、活动路径键 |
@@ -39,9 +39,7 @@ node --test lib/model-config/tests/*.test.js
 | tests/support-entry.test.js | 检查更新 / 反馈积木的页面落点、路由注册、Response 凭证适配、全新纯色圆角弹窗外壳、未配置仓库降级 |
 | tests/toast-duration.test.js | 系统通知时长设置页、Node → PowerShell 环境变量、WinRT toast duration 属性接线 |
 | lib/update-checker/tests/update-checker.test.js | 版本比较、GitHub release 响应、缓存与网络异常降级 |
-| lib/feedback/tests/feedback.test.js | 环境信息、反馈多轮会话、单条消息长度限制、issue 草稿解析、预填页、模型失败降级 | 
-| lib/model-config/tests/model-config.test.js | 三档模型配置、凭据保护、Hana 指定模型直连、自定义 API、响应解析与配置迁移 | 
-| lib/model-config/tests/retry-budget.test.js | 思考型模型空正文重试预算与诊断 |
+| lib/feedback/tests/feedback.test.js | 环境信息、反馈多轮会话、单条消息长度限制、issue 草稿解析、预填页、模型失败降级 |
 
 > 注：v0.2.0 删「通知历史」（页面/API/存储全移除）；v0.3.0 删「重要关键词」功能（策略/配置/页面全移除）。检查更新仓库通过 `TIGEXING_GITHUB_REPO` 注入；未配置时页面明确提示，不伪造地址。
 

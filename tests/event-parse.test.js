@@ -16,7 +16,8 @@ import {
   agentIdFromSessionPath,
   extractAssistantText,
   stripMetaBlocks,
-  isFinalTurn
+  isFinalTurn,
+  isIntermediateToolTurn
 } from "../lib/event-parse.js";
 
 test("非 turn_end 事件返回 null", () => {
@@ -109,6 +110,7 @@ test("turn_end 解析 agentId / sessionId / sessionPath", () => {
   assert.equal(r.agentId, "hanako");
   assert.equal(r.sessionId, "2026-01-01T00-00-00Z_abc");
   assert.equal(r.sessionPath, sp);
+  assert.equal(r.hasToolCall, false);
 });
 
 test("turn_end 缺 agentId 兜底 unknown", () => {
@@ -186,6 +188,26 @@ test("sessionIdFromPath 兼容反斜杠与大小写", () => {
   assert.equal(sessionIdFromPath(".../sessions/ABC.JSONL"), "ABC");
   assert.equal(sessionIdFromPath(null), "");
   assert.equal(sessionIdFromPath(""), "");
+});
+
+test("stopReason 缺失但含 toolCall：识别为工具循环中间回合", () => {
+  const r = parseTurnEnd({
+    type: "turn_end",
+    message: { role: "assistant", content: [{ type: "toolCall", name: "subagent" }] }
+  }, "C:/sessions/main.jsonl");
+  assert.equal(r.stopReason, null);
+  assert.equal(r.hasToolCall, true);
+  assert.equal(isFinalTurn(r.stopReason), true);
+  assert.equal(isIntermediateToolTurn(r), true);
+});
+
+test("toolCall 中间回合不会进入异常失败解析", () => {
+  const r = parseTurnFailure({
+    type: "turn_end",
+    wasSuccessful: false,
+    message: { content: [{ type: "toolCall", name: "subagent" }] }
+  }, "C:/sessions/main.jsonl");
+  assert.equal(r, null);
 });
 
 test("isFinalTurn：只认 stop 或缺失", () => {

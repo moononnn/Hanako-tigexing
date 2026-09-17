@@ -30,6 +30,7 @@ import {
   sessionIdFromPath,
   agentIdFromSessionPath,
   isFinalTurn,
+  isIntermediateToolTurn,
   isUserInitiatedAbortReason
 } from "./lib/event-parse.js";
 import { ActivityNotificationTracker, resolveActivitySessionPath } from "./lib/activity-notify.js";
@@ -45,6 +46,7 @@ import { AbnormalTurnTracker, ABNORMAL_FAILURE_GRACE_MS } from "./lib/abnormal-s
 import { buildAbnormalCopy, isRetryCancelled } from "./lib/abnormal-copy.js";
 import { TurnTrace } from "./lib/turn-trace.js";
 import { BackgroundTaskTracker } from "./lib/background-tasks.js";
+import { appendDebugLog, isDebugNoisyEvent } from "./lib/debug-log.js";
 
 const HANA_HOME = process.env.HANA_HOME || path.join(os.homedir(), ".hanako");
 // 「当前窗口」判定阈值：该会话最近 X 毫秒内有用户消息 → 认为是正在看的窗口
@@ -54,11 +56,9 @@ const ACTIVITY_NOTIFICATION_GRACE_MS = 1500;
 // turn_end(error) 先等宿主决定是否进入自动重试；未进入时才做兜底提醒。
 const ABNORMAL_TURN_GRACE_MS = ABNORMAL_FAILURE_GRACE_MS;
 
-// 调试日志（排查用，写插件数据目录，不进发布包）
+// 调试日志（排查用，写插件数据目录，不进发布包；高频事件和大小上限由 debug-log 统一收口）
 function dbgLog(dataDir, line) {
-  try {
-    fs.appendFileSync(path.join(dataDir, "tigexing", "debug.log"), `[${new Date().toISOString()}] ${line}\n`);
-  } catch { /* 日志失败不影响主流程 */ }
+  appendDebugLog(dataDir, line);
 }
 
 export default class TigexingPlugin {
@@ -119,8 +119,7 @@ export default class TigexingPlugin {
         try {
           const et = event?.type || "?";
           // 高频噪音事件不落盘（避免日志爆炸），只记关键事件
-          const noisy = et === "message_update" || et === "llm_usage" || et === "resource.changed" || et === "bridge_status" || et === "message_start" || et === "tool_execution_update" || et === "session_status" || et === "agent_start";
-          if (!noisy) dbgLog(this._dataDir, `事件 ${et} path=${scopedSessionPath || "无"}`);
+          if (!isDebugNoisyEvent(et)) dbgLog(this._dataDir, `事件 ${et} path=${scopedSessionPath || "无"}`);
           // 宿主通知事件先记下来；后续 activity_update 到达时用同一 sessionFile 去重。
           if (event?.type === "notification") {
             const notificationPath = scopedSessionPath || event?.sessionFile || event?.sessionPath;
@@ -203,7 +202,7 @@ export default class TigexingPlugin {
           if (info.aborted && isUserInitiatedAbortReason(info.reason)) {
             this._turnTrace.clearActive(info.sessionId);
           }
-          if (isFinalTurn(info.stopReason) && !info.aborted && info.stopReason !== "error") {
+          if (isFinalTurn(info.stopReason) && !isIntermediateToolTurn(info) && !info.aborted && info.stopReason !== "error") {
             this._abnormal.onTurnSuccess(info.sessionId);
             this._turnTrace.clearActive(info.sessionId);
           }
@@ -501,9 +500,9 @@ export default class TigexingPlugin {
   async _handleTurnEnd(info) {
     try {
       // 只认最终回合：工具循环里的中间回合（stopReason=toolUse 等）不提醒；
-      // stopReason 缺失时兼容处理（老版本事件可能没有该字段）
-      if (!isFinalTurn(info.stopReason)) {
-        dbgLog(this._dataDir, `非最终回合跳过: stopReason=${info.stopReason}`);
+      // stopReason 缺失时兼容处理；但含 toolCall 的事件仍是工具循环中间回合。
+      if (!isFinalTurn(info.stopReason) || isIntermediateToolTurn(info)) {
+        dbgLog(this._dataDir, `非最终回合跳过: stopReason=${info.stopReason} hasToolCall=${info.hasToolCall}`);
         return;
       }
       dbgLog(this._dataDir, `最终回合通过, textLen=${String(info.text).length}`);

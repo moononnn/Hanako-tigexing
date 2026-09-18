@@ -37,6 +37,7 @@ node --test lib/update-checker/tests/update-checker.test.js lib/feedback/tests/f
 | tests/sounds.test.js | 音效目录、白名单过滤、防路径穿越 |
 | tests/agents.test.js | 磁盘扫描助手列表（id + config.yaml name） |
 | tests/support-entry.test.js | 检查更新 / 反馈积木的页面落点、路由注册、Response 凭证适配、全新纯色圆角弹窗外壳、未配置仓库降级 |
+| lib/model-config/tests/model-config.test.js | 三档模型路由、Key 脱敏与加密、自定义 API 协议、临时配置测试、网络白名单错误提示 |
 | tests/toast-duration.test.js | 系统通知时长设置页、Node → PowerShell 环境变量、WinRT toast duration 属性接线 |
 | lib/update-checker/tests/update-checker.test.js | 版本比较、GitHub release 响应、缓存与网络异常降级 |
 | lib/feedback/tests/feedback.test.js | 环境信息、反馈多轮会话、单条消息长度限制、issue 草稿解析、预填页、模型失败降级 |
@@ -52,6 +53,7 @@ node --test lib/update-checker/tests/update-checker.test.js lib/feedback/tests/f
 - 超时/强制释放的 aborted 事件过滤，避免把用户主动停止报成故障
 - 配置刷新后 Notifier 合并状态保留
 - 系统通知时长配置只允许 default / long，并完整传到 WinRT toast
+- 自定义 API 受 manifest `network.allowedHosts` 主机名白名单限制，名单外域名要提示用户修改 manifest 并重启
 
 ## 实机验证清单（重启 Hana 后）
 

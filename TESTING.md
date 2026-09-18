@@ -12,7 +12,6 @@ node --check lib/activity-notify.js
 node --check lib/toast.js
 node --check routes/api.js
 node --check tests/toast-duration.test.js
-node --check tools/test-notify.js
 
 # 单元测试（零依赖，node:test）
 node --test tests/*.test.js
